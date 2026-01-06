@@ -1,0 +1,125 @@
+# Codebase Map
+
+> **Quick navigation guide - "What file does what?"**
+
+---
+
+## Directory Structure
+
+```
+{{PROJECT_NAME}}/
+├── {{SKILLS_DIR}}/          # Claude Code workflow skills
+│   ├── claim-issue          # Claim issue + create branch
+│   ├── check-workflow       # Validate workflow state
+│   ├── submit-pr            # Create PR + update labels
+│   └── README.md            # Skills documentation
+│
+├── {{DOCS_DIR}}/            # Documentation
+│   ├── QUICK-REFERENCE.md   # Navigation hub (you're here)
+│   ├── FAQ-AGENTS.md        # Common questions
+│   └── CODEBASE-MAP.md      # This file
+│
+└── [PROJECT SPECIFIC DIRECTORIES]
+    # Add your project's directory structure here
+```
+
+---
+
+## Key Entry Points
+
+### Workflow Commands
+| Command | Purpose | Location |
+|---------|---------|----------|
+| `/claim-issue` | Claim GitHub issue | `{{SKILLS_DIR}}/claim-issue` |
+| `/check-workflow` | Validate labels | `{{SKILLS_DIR}}/check-workflow` |
+| `/submit-pr` | Create pull request | `{{SKILLS_DIR}}/submit-pr` |
+
+### Development Commands
+| Command | Purpose |
+|---------|---------|
+| `{{TEST_COMMAND}}` | Run tests |
+| `{{LINT_COMMAND}}` | Check code style |
+
+---
+
+## Quick Lookup by Task
+
+### "I need to work with [FEATURE]"
+*Add project-specific mappings here*
+
+Example:
+- API endpoints → `src/api/`
+- Database models → `src/models/`
+- UI components → `src/components/`
+
+### "I need to write tests"
+- Test directory: `tests/`
+- Test command: `{{TEST_COMMAND}}`
+
+### "I need to update documentation"
+- Documentation directory: `{{DOCS_DIR}}/`
+- Skills documentation: `{{SKILLS_DIR}}/README.md`
+
+---
+
+## File Naming Conventions
+
+*Add project-specific conventions here*
+
+Examples:
+- Tests: `*_test.go`, `*.test.js`, `*Test.php`
+- Components: `PascalCase.tsx`
+- Utilities: `kebab-case.ts`
+
+---
+
+## Dependencies
+
+### External
+*List key external dependencies and their purpose*
+
+### Internal
+*Document internal module dependencies*
+
+---
+
+## Common Patterns
+
+*Document recurring patterns in the codebase*
+
+Example:
+```
+// Pattern: Error handling
+try {
+    // Operation
+} catch (error) {
+    // Log and handle
+}
+```
+
+---
+
+## Performance Hotspots
+
+*Document areas that need special attention for performance*
+
+---
+
+## Related Documentation
+
+- [QUICK-REFERENCE.md](QUICK-REFERENCE.md) - Fast navigation
+- [FAQ-AGENTS.md](FAQ-AGENTS.md) - Common questions
+- [{{SKILLS_DIR}}/README.md](../{{SKILLS_DIR}}/README.md) - Workflow skills
+
+---
+
+**Maintenance Note:**
+
+Keep this document updated when:
+- Adding new directories
+- Moving files
+- Changing project structure
+
+---
+
+**Last updated:** {{CURRENT_DATE}}

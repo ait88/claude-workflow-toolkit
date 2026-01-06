@@ -1,0 +1,48 @@
+# Default profile - works for any project
+# Override values as needed for your project
+
+project:
+  name: "{{PROJECT_NAME}}"
+  repo_owner: "{{REPO_OWNER}}"
+  default_branch: "main"
+
+workflow:
+  skills_dir: ".claude/skills"
+  docs_dir: "docs"
+  phase_prefix: "phase-"
+  phase_count: 6
+
+labels:
+  ready: "agent-ready"
+  in_progress: "in-progress"
+  needs_review: "needs-review"
+  blocked: "blocked"
+
+commands:
+  test: "echo 'No test command configured'"
+  lint: "echo 'No lint command configured'"
+
+commit:
+  types:
+    - feat
+    - fix
+    - docs
+    - refactor
+    - test
+    - chore
+  scope_required: false
+
+branch:
+  pattern: "<issue>-<title-slug>"
+  max_length: 60
+
+output:
+  skills:
+    - claim-issue
+    - check-workflow
+    - submit-pr
+    - README.md
+  docs:
+    - QUICK-REFERENCE.md
+    - FAQ-AGENTS.md
+    - CODEBASE-MAP.md

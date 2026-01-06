@@ -1,0 +1,144 @@
+# Frequently Asked Questions for Agents
+
+> **Quick answers to common questions**
+>
+> Read time: 5-10 minutes
+
+---
+
+## 1. What are my workflow steps?
+
+**Short answer:**
+1. Claim issue: `/claim-issue <number>`
+2. Implement: Write code, tests, documentation
+3. Validate: `/check-workflow`
+4. Submit: `/submit-pr`
+
+**Full details:** See [{{SKILLS_DIR}}/README.md](../{{SKILLS_DIR}}/README.md)
+
+---
+
+## 2. How do I run tests?
+
+**Short answer:**
+```bash
+{{TEST_COMMAND}}
+```
+
+---
+
+## 3. How do I check code style?
+
+**Short answer:**
+```bash
+{{LINT_COMMAND}}
+```
+
+---
+
+## 4. Where are files located?
+
+See [CODEBASE-MAP.md](CODEBASE-MAP.md) for complete file navigation.
+
+---
+
+## 5. What commit message format should I use?
+
+**Format:**
+```
+<type>(<scope>): <description> (#<issue>)
+```
+
+**Types:**
+- `feat` - New feature
+- `fix` - Bug fix
+- `docs` - Documentation
+- `refactor` - Code refactoring
+- `test` - Adding tests
+- `chore` - Maintenance
+
+**Example:**
+```
+feat(auth): add password reset flow (#42)
+```
+
+---
+
+## 6. How do I handle blocked issues?
+
+1. Add `blocked` label:
+   ```bash
+   gh issue edit $ISSUE --add-label "blocked"
+   ```
+
+2. Leave explanatory comment:
+   ```bash
+   gh issue comment $ISSUE --body "Blocked because: [reason]"
+   ```
+
+3. Keep `in-progress` label (you're still assigned)
+
+---
+
+## 7. What labels are used?
+
+| Label | Meaning | When Set |
+|-------|---------|----------|
+| `agent-ready` | Available for work | By maintainer |
+| `in-progress` | Agent working on it | By `/claim-issue` |
+| `needs-review` | PR created | By `/submit-pr` |
+| `blocked` | Waiting on something | Manually when stuck |
+
+---
+
+## 8. How do I update documentation?
+
+Update docs **in the same PR** as code changes when:
+- Adding new features
+- Changing existing behavior
+- Adding new patterns
+
+**Don't** create new documentation files unless specifically requested.
+
+---
+
+## 9. What if my PR has conflicts?
+
+```bash
+git fetch origin {{DEFAULT_BRANCH}}
+git rebase origin/{{DEFAULT_BRANCH}}
+# Resolve conflicts
+git push --force-with-lease
+```
+
+---
+
+## 10. How do I know if tests are required?
+
+**Always write tests for:**
+- New features
+- Bug fixes (regression tests)
+- Public API changes
+
+**Skip tests for:**
+- Documentation-only changes
+- Configuration changes
+- Comment-only changes
+
+---
+
+## Didn't Find Your Question?
+
+1. Check [CODEBASE-MAP.md](CODEBASE-MAP.md) for file locations
+2. Check [QUICK-REFERENCE.md](QUICK-REFERENCE.md) for navigation
+3. Read existing code for patterns
+
+---
+
+**Contributing to this FAQ:**
+
+If you had a question that took time to answer, consider adding it here!
+
+---
+
+**Last updated:** {{CURRENT_DATE}}

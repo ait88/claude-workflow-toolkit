@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Skill: /claim-issue
+# Description: Atomically claim a GitHub issue and create feature branch
+# Usage: /claim-issue <issue-number>
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# Validate arguments
+if [[ $# -lt 1 ]]; then
+    echo -e "${RED}Usage: /claim-issue <issue-number>${NC}"
+    exit 1
+fi
+
+ISSUE="$1"
+
+# Validate issue number is numeric
+if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
+    echo -e "${RED}Error: Issue number must be numeric${NC}"
+    exit 1
+fi
+
+echo "Claiming issue #${ISSUE}..."
+
+# Fetch issue details
+ISSUE_DATA=$(gh issue view "$ISSUE" --json title,state,labels 2>/dev/null) || {
+    echo -e "${RED}Error: Could not fetch issue #${ISSUE}${NC}"
+    exit 1
+}
+
+STATE=$(echo "$ISSUE_DATA" | jq -r '.state')
+TITLE=$(echo "$ISSUE_DATA" | jq -r '.title')
+LABELS=$(echo "$ISSUE_DATA" | jq -r '.labels[].name' | tr '\n' ' ')
+
+# Validate issue is open
+if [[ "$STATE" != "OPEN" ]]; then
+    echo -e "${RED}Error: Issue #${ISSUE} is not open (state: ${STATE})${NC}"
+    exit 1
+fi
+
+# Check if already claimed
+if echo "$LABELS" | grep -q "in-progress"; then
+    echo -e "${YELLOW}Warning: Issue #${ISSUE} already has 'in-progress' label${NC}"
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 0
+    fi
+fi
+
+# Generate branch name from title
+BRANCH_SLUG=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-50)
+BRANCH="${ISSUE}-${BRANCH_SLUG}"
+
+echo "Issue: #${ISSUE} - ${TITLE}"
+echo "Branch: ${BRANCH}"
+echo ""
+
+# Update labels
+echo "Updating labels..."
+gh issue edit "$ISSUE" --remove-label "agent-ready" --add-label "in-progress" 2>/dev/null || {
+    # Label might not exist, try just adding
+    gh issue edit "$ISSUE" --add-label "in-progress"
+}
+
+# Create and checkout branch
+echo "Creating branch..."
+git fetch origin {{DEFAULT_BRANCH}} 2>/dev/null || true
+git checkout {{DEFAULT_BRANCH}} 2>/dev/null || git checkout main
+git pull origin {{DEFAULT_BRANCH}} 2>/dev/null || git pull origin main
+
+if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    echo -e "${YELLOW}Branch ${BRANCH} already exists, checking out...${NC}"
+    git checkout "$BRANCH"
+else
+    git checkout -b "$BRANCH"
+fi
+
+echo ""
+echo -e "${GREEN}Issue #${ISSUE} claimed successfully${NC}"
+echo ""
+echo "Next steps:"
+echo "  1. Implement the changes"
+echo "  2. Run tests: {{TEST_COMMAND}}"
+echo "  3. Commit: git commit -m \"feat(scope): description (#${ISSUE})\""
+echo "  4. Submit: /submit-pr"

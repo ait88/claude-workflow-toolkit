@@ -1,0 +1,45 @@
+# Bash CLI tool projects
+# Extends default profile with Bash-specific settings
+
+extends: default
+
+project:
+  language: "bash"
+  package_manager: null
+
+commands:
+  test: "./tests/run-all.sh"
+  lint: "shellcheck **/*.sh"
+  format: "shfmt -w -i 4 **/*.sh"
+
+conventions:
+  file_encoding: "UTF-8 (ASCII preferred)"
+  indent: "4 spaces"
+  line_endings: "LF"
+  shebang: "#!/usr/bin/env bash"
+  strict_mode: "set -euo pipefail"
+
+  naming:
+    scripts: "kebab-case.sh"
+    functions: "snake_case"
+    variables: "SCREAMING_SNAKE_CASE"
+    local_vars: "lower_snake_case"
+
+  structure:
+    source_dir: "lib"
+    bin_dir: "bin"
+    test_dir: "tests"
+
+security_checklist:
+  - "Quote all variables"
+  - "Validate input before use"
+  - "No eval with user input"
+  - "Use arrays for command arguments"
+  - "Validate hostnames/IPs"
+  - "No hardcoded credentials"
+
+bash:
+  minimum_version: "4.0"
+  posix_compatible: false
+  use_local_keyword: true
+  prefer_builtin: true

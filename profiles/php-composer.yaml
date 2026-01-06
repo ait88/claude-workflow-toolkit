@@ -1,0 +1,43 @@
+# PHP projects using Composer
+# Extends default profile with PHP-specific settings
+
+extends: default
+
+project:
+  language: "php"
+  package_manager: "composer"
+
+commands:
+  test: "composer test"
+  lint: "composer phpcs"
+  format: "composer phpcbf"
+
+conventions:
+  file_encoding: "UTF-8"
+  indent: "4 spaces"
+  line_endings: "LF"
+
+  naming:
+    classes: "PascalCase"
+    methods: "camelCase"
+    constants: "SCREAMING_SNAKE_CASE"
+    variables: "camelCase"
+
+  structure:
+    source_dir: "src"
+    test_dir: "tests"
+    vendor_dir: "vendor"
+
+security_checklist:
+  - "Nonce verification on forms"
+  - "Capability checks on actions"
+  - "Input sanitization (sanitize_text_field, absint, etc.)"
+  - "Output escaping (esc_html, esc_attr, esc_url)"
+  - "SQL injection prevention ($wpdb->prepare)"
+  - "No credentials in code"
+
+php:
+  strict_types: true
+  type_hints: true
+  phpdoc_required: true
+  namespace_pattern: "Vendor\\Package\\"

@@ -1,0 +1,47 @@
+# Python projects using Poetry
+# Extends default profile with Python-specific settings
+
+extends: default
+
+project:
+  language: "python"
+  package_manager: "poetry"
+
+commands:
+  test: "poetry run pytest"
+  lint: "poetry run ruff check ."
+  format: "poetry run ruff format ."
+  typecheck: "poetry run mypy ."
+
+conventions:
+  file_encoding: "UTF-8"
+  indent: "4 spaces"
+  line_endings: "LF"
+
+  naming:
+    modules: "snake_case.py"
+    classes: "PascalCase"
+    functions: "snake_case"
+    constants: "SCREAMING_SNAKE_CASE"
+    private: "_prefix"
+
+  structure:
+    source_dir: "src"
+    test_dir: "tests"
+    venv_dir: ".venv"
+
+security_checklist:
+  - "Validate user input"
+  - "Use parameterized SQL queries"
+  - "Escape output appropriately"
+  - "No secrets in code"
+  - "Validate file paths"
+  - "Check dependencies for vulnerabilities"
+
+python:
+  minimum_version: "3.10"
+  type_hints: true
+  docstrings: "google"
+  formatter: "ruff"
+  linter: "ruff"
+  test_framework: "pytest"

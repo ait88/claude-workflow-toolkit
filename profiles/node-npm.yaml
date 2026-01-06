@@ -1,0 +1,49 @@
+# Node.js projects using npm/yarn
+# Extends default profile with Node-specific settings
+
+extends: default
+
+project:
+  language: "javascript/typescript"
+  package_manager: "npm"
+
+commands:
+  test: "npm test"
+  lint: "npm run lint"
+  format: "npm run format"
+  build: "npm run build"
+  dev: "npm run dev"
+
+conventions:
+  file_encoding: "UTF-8"
+  indent: "2 spaces"
+  line_endings: "LF"
+
+  naming:
+    files: "kebab-case.ts"
+    components: "PascalCase.tsx"
+    hooks: "useCamelCase.ts"
+    utilities: "camelCase.ts"
+    constants: "SCREAMING_SNAKE_CASE"
+    types: "PascalCase"
+
+  structure:
+    source_dir: "src"
+    test_dir: "__tests__"
+    build_dir: "dist"
+    node_modules: "node_modules"
+
+security_checklist:
+  - "Validate user input"
+  - "Sanitize output (XSS prevention)"
+  - "Use parameterized queries"
+  - "No secrets in code"
+  - "Validate URLs and paths"
+  - "Check dependencies for vulnerabilities"
+
+node:
+  minimum_version: "18.0"
+  typescript: true
+  eslint: true
+  prettier: true
+  test_framework: "jest"
