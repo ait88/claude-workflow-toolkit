@@ -143,16 +143,29 @@ After applying, the target project will have:
 
 ```
 target-project/
-├── {{SKILLS_DIR}}/
-│   ├── claim-issue      # Claim issue + create branch
-│   ├── check-workflow   # Validate workflow state
-│   ├── submit-pr        # Create PR + update labels
-│   └── README.md        # Skills documentation
+├── .claude/
+│   ├── skills/
+│   │   ├── claim-issue      # Claim issue + create branch
+│   │   ├── check-workflow   # Validate workflow state
+│   │   ├── submit-pr        # Create PR + update labels
+│   │   └── README.md        # Skills documentation
+│   └── settings.local.json  # Pre-configured Claude Code permissions
 └── {{DOCS_DIR}}/
     ├── QUICK-REFERENCE.md   # Navigation hub
     ├── FAQ-AGENTS.md        # Pre-answered questions
     └── CODEBASE-MAP.md      # Annotated directory structure
 ```
+
+### Optional: Setup GitHub Labels
+
+Before using the workflow, the target repository needs the required labels. Run the setup script from this toolkit in the target repo:
+
+```bash
+# From target project directory
+/path/to/claude-workflow-toolkit/scripts/setup-labels.sh
+```
+
+This creates: `agent-ready`, `in-progress`, `needs-review`, `blocked`, `phase-0` through `phase-6`, and type labels.
 
 ## Maintenance
 
@@ -182,3 +195,8 @@ Skills should be in `{{SKILLS_DIR}}/` directory. Verify:
 1. Files exist and are executable
 2. Files have no `.sh` extension (just `claim-issue`, not `claim-issue.sh`)
 3. Claude Code is restarted after adding skills
+
+### SSH authentication fails
+The skill templates include automatic SSH/HTTPS fallback. If SSH fails, they'll attempt to use `gh auth setup-git` to configure HTTPS authentication. Ensure:
+1. GitHub CLI is authenticated: `gh auth status`
+2. If using SSH, keys are properly configured: `ssh -T git@github.com`

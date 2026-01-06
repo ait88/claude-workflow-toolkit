@@ -68,11 +68,22 @@ gh issue edit "$ISSUE" --remove-label "agent-ready" --add-label "in-progress" 2>
     gh issue edit "$ISSUE" --add-label "in-progress"
 }
 
+# Helper function for SSH/HTTPS fallback
+git_with_fallback() {
+    local cmd="$1"
+    shift
+    if ! git "$cmd" "$@" 2>/dev/null; then
+        echo "SSH failed, trying HTTPS via gh auth..."
+        gh auth setup-git 2>/dev/null || true
+        git "$cmd" "$@"
+    fi
+}
+
 # Create and checkout branch
 echo "Creating branch..."
-git fetch origin {{DEFAULT_BRANCH}} 2>/dev/null || true
+git_with_fallback fetch origin {{DEFAULT_BRANCH}} || git_with_fallback fetch origin main || true
 git checkout {{DEFAULT_BRANCH}} 2>/dev/null || git checkout main
-git pull origin {{DEFAULT_BRANCH}} 2>/dev/null || git pull origin main
+git_with_fallback pull origin {{DEFAULT_BRANCH}} || git_with_fallback pull origin main || true
 
 if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
     echo -e "${YELLOW}Branch ${BRANCH} already exists, checking out...${NC}"

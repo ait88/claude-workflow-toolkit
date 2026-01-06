@@ -47,9 +47,20 @@ if [[ -n $(git status --porcelain) ]]; then
     fi
 fi
 
+# Helper function for SSH/HTTPS fallback
+git_with_fallback() {
+    local cmd="$1"
+    shift
+    if ! git "$cmd" "$@" 2>/dev/null; then
+        echo "SSH failed, trying HTTPS via gh auth..."
+        gh auth setup-git 2>/dev/null || true
+        git "$cmd" "$@"
+    fi
+}
+
 # Push branch
 echo "Pushing branch..."
-git push -u origin "$BRANCH" 2>&1 || {
+git_with_fallback push -u origin "$BRANCH" || {
     echo -e "${RED}Error: Failed to push branch${NC}"
     exit 1
 }
