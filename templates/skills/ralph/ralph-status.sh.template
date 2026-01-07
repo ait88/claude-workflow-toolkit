@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# Skill: /ralph-status
+# Description: Check Ralph Wiggum task progress and model utilization
+# Usage: /ralph-status <issue-number>
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Validate arguments
+if [[ $# -lt 1 ]]; then
+    echo -e "${RED}Usage: /ralph-status <issue-number>${NC}"
+    exit 1
+fi
+
+ISSUE="$1"
+
+# Validate issue number
+if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
+    echo -e "${RED}Error: Issue number must be numeric${NC}"
+    exit 1
+fi
+
+# Check for jq
+if ! command -v jq &> /dev/null; then
+    echo -e "${RED}Error: jq is required but not installed${NC}"
+    echo "Install: brew install jq (macOS) or sudo apt-get install jq (Ubuntu)"
+    exit 1
+fi
+
+RALPH_DIR=".ralph"
+PROGRESS_FILE="${RALPH_DIR}/progress-${ISSUE}.json"
+
+# Check if progress file exists
+if [[ ! -f "$PROGRESS_FILE" ]]; then
+    echo -e "${YELLOW}No Ralph task found for issue #${ISSUE}${NC}"
+    echo ""
+    echo "Available Ralph tasks:"
+    if [[ -d "$RALPH_DIR" ]] && compgen -G "${RALPH_DIR}/progress-*.json" > /dev/null; then
+        for file in "${RALPH_DIR}"/progress-*.json; do
+            issue_num=$(basename "$file" | sed 's/progress-//' | sed 's/.json//')
+            task=$(jq -r '.task' "$file" 2>/dev/null || echo "Unknown")
+            status=$(jq -r '.status' "$file" 2>/dev/null || echo "Unknown")
+            echo "  #${issue_num}: ${task} (${status})"
+        done
+    else
+        echo "  (none)"
+    fi
+    exit 1
+fi
+
+# Read progress data
+TASK=$(jq -r '.task' "$PROGRESS_FILE")
+STATUS=$(jq -r '.status' "$PROGRESS_FILE")
+START_TIME=$(jq -r '.start_time' "$PROGRESS_FILE")
+COMPLETION_TIME=$(jq -r '.completion_time // "N/A"' "$PROGRESS_FILE")
+CURRENT_ITER=$(jq -r '.current_iteration' "$PROGRESS_FILE")
+MAX_ITER=$(jq -r '.max_iterations' "$PROGRESS_FILE")
+CLAUDE_COUNT=$(jq -r '.models_used.claude' "$PROGRESS_FILE")
+CODEX_COUNT=$(jq -r '.models_used.codex' "$PROGRESS_FILE")
+GEMINI_COUNT=$(jq -r '.models_used.gemini' "$PROGRESS_FILE")
+MINIMAX_COUNT=$(jq -r '.models_used.minimax' "$PROGRESS_FILE")
+
+# Calculate total model calls
+TOTAL_CALLS=$((CLAUDE_COUNT + CODEX_COUNT + GEMINI_COUNT + MINIMAX_COUNT))
+
+# Status color
+STATUS_COLOR=$GREEN
+if [[ "$STATUS" == "running" ]]; then
+    STATUS_COLOR=$BLUE
+elif [[ "$STATUS" == "blocked" || "$STATUS" == "failed" ]]; then
+    STATUS_COLOR=$RED
+fi
+
+# Display header
+echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}   Ralph Status: Issue #${ISSUE}${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
+echo ""
+
+# Basic info
+echo -e "${CYAN}Task:${NC} $TASK"
+echo -e "${CYAN}Status:${NC} ${STATUS_COLOR}${STATUS}${NC}"
+echo -e "${CYAN}Started:${NC} $START_TIME"
+if [[ "$COMPLETION_TIME" != "N/A" ]]; then
+    echo -e "${CYAN}Completed:${NC} $COMPLETION_TIME"
+fi
+echo ""
+
+# Progress
+echo -e "${CYAN}Progress:${NC} Iteration $CURRENT_ITER/$MAX_ITER"
+if [[ "$MAX_ITER" -gt 0 ]]; then
+    PROGRESS_PCT=$((CURRENT_ITER * 100 / MAX_ITER))
+    BAR_WIDTH=50
+    FILLED=$((PROGRESS_PCT * BAR_WIDTH / 100))
+    EMPTY=$((BAR_WIDTH - FILLED))
+    BAR=$(printf "%${FILLED}s" | tr ' ' '█')$(printf "%${EMPTY}s" | tr ' ' '░')
+    echo -e "  [${BAR}] ${PROGRESS_PCT}%"
+fi
+echo ""
+
+# Model utilization
+echo -e "${CYAN}Model Utilization:${NC}"
+if [[ $TOTAL_CALLS -gt 0 ]]; then
+    echo -e "  Claude:  ${CLAUDE_COUNT}  ($((CLAUDE_COUNT * 100 / TOTAL_CALLS))%)"
+    echo -e "  Codex:   ${CODEX_COUNT}  ($((CODEX_COUNT * 100 / TOTAL_CALLS))%)"
+    echo -e "  Gemini:  ${GEMINI_COUNT}  ($((GEMINI_COUNT * 100 / TOTAL_CALLS))%)"
+    echo -e "  MiniMax: ${MINIMAX_COUNT}  ($((MINIMAX_COUNT * 100 / TOTAL_CALLS))%)"
+    echo -e "  Total:   ${TOTAL_CALLS} calls"
+else
+    echo -e "  ${YELLOW}No model calls recorded yet${NC}"
+fi
+echo ""
+
+# Recent progress entries
+ENTRY_COUNT=$(jq '.progress_entries | length' "$PROGRESS_FILE")
+if [[ $ENTRY_COUNT -gt 0 ]]; then
+    echo -e "${CYAN}Recent Progress:${NC}"
+    jq -r '.progress_entries[-5:] | reverse | .[] |
+        "  [\(.iteration)/'"$MAX_ITER"'] \(.model) - \(.progress_pct)% - \(.status)"' \
+        "$PROGRESS_FILE"
+    echo ""
+fi
+
+# Error handling
+ERROR=$(jq -r '.error // ""' "$PROGRESS_FILE")
+if [[ -n "$ERROR" ]]; then
+    echo -e "${RED}Error:${NC} $ERROR"
+    echo ""
+fi
+
+# Footer
+echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
+echo ""
+
+# Action suggestions based on status
+case "$STATUS" in
+    "running")
+        echo "Task is currently running. Monitor progress with:"
+        echo "  watch -n 5 /ralph-status $ISSUE"
+        ;;
+    "completed")
+        echo -e "${GREEN}Task completed successfully!${NC}"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Review changes: git status"
+        echo "  2. Validate workflow: /check-workflow"
+        echo "  3. Submit PR: /submit-pr"
+        ;;
+    "blocked"|"failed")
+        echo -e "${RED}Task requires attention${NC}"
+        echo ""
+        echo "Check the error message above and:"
+        echo "  1. Review progress file: cat $PROGRESS_FILE"
+        echo "  2. Check logs for more details"
+        echo "  3. Resume or restart: /ralph-task $ISSUE \"<description>\""
+        ;;
+esac
+
+exit 0

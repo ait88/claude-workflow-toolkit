@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# Skill: /ralph-task
+# Description: Execute iterative task with Ralph Wiggum observability wrapper
+# Usage: /ralph-task <issue-number> <task-description> [max-iterations]
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Validate arguments
+if [[ $# -lt 2 ]]; then
+    echo -e "${RED}Usage: /ralph-task <issue-number> <task-description> [max-iterations]${NC}"
+    echo ""
+    echo "Examples:"
+    echo "  /ralph-task 42 \"Implement user authentication\""
+    echo "  /ralph-task 42 \"Implement user authentication\" 15"
+    exit 1
+fi
+
+ISSUE="$1"
+TASK_DESC="$2"
+MAX_ITERATIONS="${3:-{{RALPH_DEFAULT_ITERATIONS}}}"
+
+# Validate issue number
+if ! [[ "$ISSUE" =~ ^[0-9]+$ ]]; then
+    echo -e "${RED}Error: Issue number must be numeric${NC}"
+    exit 1
+fi
+
+# Validate max iterations
+if ! [[ "$MAX_ITERATIONS" =~ ^[0-9]+$ ]] || [[ "$MAX_ITERATIONS" -lt 1 ]] || [[ "$MAX_ITERATIONS" -gt 100 ]]; then
+    echo -e "${RED}Error: Max iterations must be between 1 and 100${NC}"
+    exit 1
+fi
+
+echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}   Ralph Wiggum Task Executor${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
+echo ""
+echo "Issue: #${ISSUE}"
+echo "Task: ${TASK_DESC}"
+echo "Max Iterations: ${MAX_ITERATIONS}"
+echo ""
+
+# Create .ralph directory
+RALPH_DIR=".ralph"
+mkdir -p "$RALPH_DIR"
+
+# Initialize progress tracking file
+PROGRESS_FILE="${RALPH_DIR}/progress-${ISSUE}.json"
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+cat > "$PROGRESS_FILE" << EOF
+{
+  "issue": $ISSUE,
+  "task": "$TASK_DESC",
+  "max_iterations": $MAX_ITERATIONS,
+  "start_time": "$TIMESTAMP",
+  "status": "running",
+  "current_iteration": 0,
+  "models_used": {
+    "claude": 0,
+    "codex": 0,
+    "gemini": 0,
+    "minimax": 0
+  },
+  "progress_entries": []
+}
+EOF
+
+echo -e "${GREEN}Progress tracking initialized: ${PROGRESS_FILE}${NC}"
+echo ""
+
+# Enhanced prompt with observability requirements
+ENHANCED_PROMPT="$TASK_DESC
+
+## Ralph Wiggum Observability Requirements
+
+You MUST provide checkpoint outputs in this exact format at the end of each iteration:
+
+[RALPH:${ISSUE}] Iteration N/${MAX_ITERATIONS} | Model: <claude|codex|gemini|minimax> | Progress: N% | Status: <brief-status>
+
+Examples:
+- [RALPH:${ISSUE}] Iteration 1/${MAX_ITERATIONS} | Model: claude | Progress: 10% | Status: Exploring codebase
+- [RALPH:${ISSUE}] Iteration 3/${MAX_ITERATIONS} | Model: codex | Progress: 45% | Status: Implementing auth handler
+- [RALPH:${ISSUE}] Iteration 7/${MAX_ITERATIONS} | Model: gemini | Progress: 80% | Status: Writing tests
+
+Progress tracking file: ${PROGRESS_FILE}
+
+Update the progress file after each iteration with:
+- current_iteration
+- model used (increment models_used.<model>)
+- progress_entries (array of {iteration, timestamp, model, progress_pct, status})
+
+When task is complete, set status to \"completed\" and add completion_time.
+If blocked or failed, set status to \"blocked\" or \"failed\" with reason."
+
+# Display enhanced prompt preview
+echo -e "${YELLOW}═══ Enhanced Prompt Preview ═══${NC}"
+echo "$ENHANCED_PROMPT" | head -n 20
+echo "..."
+echo ""
+
+# Confirm before proceeding
+echo -e "${YELLOW}Ready to execute with /ralph-loop${NC}"
+echo "Press Enter to continue, Ctrl+C to cancel..."
+read -r
+
+# Execute via ralph-loop
+echo ""
+echo -e "${BLUE}Handing off to /ralph-loop...${NC}"
+echo ""
+
+# Check if ralph-loop is available
+if ! command -v ralph-loop &> /dev/null; then
+    echo -e "${RED}Error: /ralph-loop command not found${NC}"
+    echo ""
+    echo "Ralph Wiggum integration requires the ralph-wiggum plugin."
+    echo "Install from: https://github.com/ait88/ralph-wiggum"
+    echo ""
+
+    # Update status to failed
+    jq --arg ts "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+       '.status = "failed" | .completion_time = $ts | .error = "ralph-loop not installed"' \
+       "$PROGRESS_FILE" > "${PROGRESS_FILE}.tmp" && mv "${PROGRESS_FILE}.tmp" "$PROGRESS_FILE"
+
+    exit 1
+fi
+
+# Execute ralph-loop with enhanced prompt
+ralph-loop --max-iterations "$MAX_ITERATIONS" "$ENHANCED_PROMPT"
+
+EXIT_CODE=$?
+
+echo ""
+echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+    echo -e "${GREEN}Ralph task completed successfully${NC}"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Review progress: /ralph-status ${ISSUE}"
+    echo "  2. Validate workflow: /check-workflow"
+    echo "  3. Submit PR: /submit-pr"
+else
+    echo -e "${RED}Ralph task failed with exit code ${EXIT_CODE}${NC}"
+    echo ""
+    echo "Check progress: /ralph-status ${ISSUE}"
+fi
+
+echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
+
+exit $EXIT_CODE

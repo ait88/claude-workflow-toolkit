@@ -8,6 +8,7 @@ This toolkit provides:
 - **Workflow Skills**: Bash scripts that automate GitHub issue/PR workflows with 70-80% fewer API calls
 - **Documentation Templates**: Quick-reference docs that help agents navigate your codebase efficiently
 - **Project Profiles**: Pre-configured settings for common tech stacks
+- **Ralph Wiggum Integration** (Optional): Iterative task execution with multi-model orchestration for complex features
 
 ## How It Works
 
@@ -55,7 +56,8 @@ your-project/
 
 | Profile | Best For |
 |---------|----------|
-| `default.yaml` | Any project |
+| `default.yaml` | Any project (Ralph disabled) |
+| `with-ralph.yaml` | Projects using Ralph Wiggum integration |
 | `php-composer.yaml` | PHP with Composer |
 | `bash-cli.yaml` | Bash CLI tools |
 | `node-npm.yaml` | Node.js/TypeScript |
@@ -142,6 +144,30 @@ Creates the required GitHub labels in your repository:
 ```bash
 ./scripts/setup-labels.sh
 ```
+
+## Optional Features
+
+### Ralph Wiggum Integration
+
+Enable iterative task execution with multi-model orchestration for complex features:
+- Loop-based execution until `VERIFIED_DONE` state
+- Automatic model routing: Claude, Codex, Gemini, MiniMax
+- Progress tracking with `.ralph/progress-{issue}.json`
+- 30-50% token savings on complex tasks through smart model selection
+
+**Enable Ralph:**
+```bash
+# Use with-ralph.yaml profile when applying toolkit
+# Agent will generate /ralph-task and /ralph-status skills
+```
+
+**Usage:**
+```bash
+/ralph-task 42 "Implement OAuth2 authentication"
+/ralph-status 42  # Monitor progress
+```
+
+See [`docs/RALPH-INTEGRATION.md`](docs/RALPH-INTEGRATION.md) for full documentation.
 
 ## Why Use This?
 

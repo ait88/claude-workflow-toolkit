@@ -1,0 +1,196 @@
+# Ralph Wiggum Integration Skills
+
+Optional skills for iterative task execution with multi-model orchestration.
+
+## Overview
+
+Ralph Wiggum integration provides:
+- **Iterative execution**: Loop-based task completion with adaptive routing
+- **Model orchestration**: Automatic delegation to Claude, Codex, Gemini, MiniMax
+- **Progress tracking**: Real-time visibility into iteration count and model usage
+- **Observability**: Checkpoint outputs and JSON progress files
+
+## Prerequisites
+
+Ralph Wiggum plugin must be installed:
+```bash
+# Install from GitHub
+git clone https://github.com/ait88/ralph-wiggum
+cd ralph-wiggum
+./install.sh
+```
+
+Verify installation:
+```bash
+ralph-loop --version
+```
+
+## Available Skills
+
+### `/ralph-task <issue> <description> [max-iterations]`
+
+Execute a task with Ralph's iterative loop pattern.
+
+**Usage:**
+```bash
+/ralph-task 42 "Implement user authentication"
+/ralph-task 42 "Implement user authentication" 15
+```
+
+**What it does:**
+1. Creates `.ralph/` directory for progress tracking
+2. Initializes progress JSON file: `.ralph/progress-{issue}.json`
+3. Enhances prompt with observability requirements
+4. Hands off to `/ralph-loop` for execution
+5. Monitors checkpoint outputs: `[RALPH:{issue}] Iteration N/Max | Model: X | Progress: N%`
+
+**Default max iterations:** {{RALPH_DEFAULT_ITERATIONS}}
+
+---
+
+### `/ralph-status <issue>`
+
+Check progress and model utilization for a Ralph task.
+
+**Usage:**
+```bash
+/ralph-status 42
+watch -n 5 /ralph-status 42  # Monitor in real-time
+```
+
+**What it shows:**
+- Task description and status
+- Start/completion timestamps
+- Current iteration vs max
+- Model utilization breakdown (Claude/Codex/Gemini/MiniMax)
+- Recent progress entries
+- Error messages if failed/blocked
+
+---
+
+## When to Use Ralph
+
+### ✅ Use Ralph for:
+- **Complex, multi-step tasks** requiring exploration and iteration
+- **Uncertain scope** where path forward is not clear
+- **Multi-model benefit** where Codex (code gen), Gemini (research), MiniMax (review) add value
+- **Long-running tasks** where progress monitoring is valuable
+
+### ❌ Don't use Ralph for:
+- **Simple, well-defined tasks** (use standard workflow)
+- **Single-step operations** (claim issue, submit PR)
+- **Pure research/reading** (no iteration needed)
+- **Time-sensitive tasks** (Ralph adds orchestration overhead)
+
+## Workflow Integration
+
+Ralph fits into the standard workflow:
+
+```
+1. Find issue:       gh issue list --label "agent-ready"
+2. Claim issue:      /claim-issue <number>
+3. Execute task:     /ralph-task <number> "<description>"
+4. Monitor progress: /ralph-status <number>
+5. Validate:         /check-workflow
+6. Submit:           /submit-pr
+```
+
+## Progress Tracking
+
+Ralph creates `.ralph/progress-{issue}.json` with schema:
+
+```json
+{
+  "issue": 42,
+  "task": "Implement user authentication",
+  "max_iterations": 20,
+  "start_time": "2025-01-07T10:30:00Z",
+  "completion_time": "2025-01-07T11:15:00Z",
+  "status": "completed",
+  "current_iteration": 8,
+  "models_used": {
+    "claude": 3,
+    "codex": 2,
+    "gemini": 2,
+    "minimax": 1
+  },
+  "progress_entries": [
+    {
+      "iteration": 1,
+      "timestamp": "2025-01-07T10:30:15Z",
+      "model": "claude",
+      "progress_pct": 10,
+      "status": "Exploring codebase structure"
+    }
+  ]
+}
+```
+
+## Checkpoint Format
+
+Ralph tasks output checkpoints for monitoring:
+
+```
+[RALPH:42] Iteration 1/20 | Model: claude | Progress: 10% | Status: Exploring codebase
+[RALPH:42] Iteration 3/20 | Model: codex | Progress: 45% | Status: Implementing auth handler
+[RALPH:42] Iteration 7/20 | Model: gemini | Progress: 80% | Status: Writing tests
+[RALPH:42] Iteration 8/20 | Model: claude | Progress: 100% | Status: Completed
+```
+
+## Troubleshooting
+
+### "ralph-loop: command not found"
+
+Ralph Wiggum plugin not installed. See Prerequisites above.
+
+### Task stuck in "running" status
+
+Check if ralph-loop process is still active:
+```bash
+ps aux | grep ralph-loop
+```
+
+If hung, kill process and check progress file for last known state.
+
+### High iteration count without progress
+
+Ralph may be spinning on a blocker. Check:
+1. Recent progress entries: `/ralph-status <issue>`
+2. Progress file manually: `cat .ralph/progress-{issue}.json`
+3. Consider manual intervention or task redefinition
+
+### Permission denied
+
+```bash
+chmod +x {{SKILLS_DIR}}/ralph/*
+```
+
+---
+
+## Configuration
+
+Ralph integration is controlled via profile settings:
+
+```yaml
+ralph:
+  ralph_integration: true
+  ralph_default_iterations: 20
+  ralph_progress_tracking: true
+```
+
+See `profiles/with-ralph.yaml` for full example.
+
+---
+
+## Token Optimization
+
+Ralph can reduce token usage through:
+- **Adaptive model routing**: Use cheaper models (MiniMax 8% cost) for reviews/checks
+- **Iteration checkpointing**: Resume from last known state
+- **Targeted context**: Models receive only relevant context per iteration
+
+Expected savings: **30-50% reduction** in total token usage for complex tasks.
+
+---
+
+*Generated by [claude-workflow-toolkit](https://github.com/{{REPO_OWNER}}/claude-workflow-toolkit)*

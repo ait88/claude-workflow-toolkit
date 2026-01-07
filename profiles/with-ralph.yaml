@@ -1,5 +1,5 @@
-# Default profile - works for any project
-# Override values as needed for your project
+# Profile with Ralph Wiggum integration
+# Extends default.yaml with iterative execution capabilities
 
 project:
   name: "{{PROJECT_NAME}}"
@@ -36,18 +36,23 @@ branch:
   pattern: "<issue>-<title-slug>"
   max_length: 60
 
-# Ralph Wiggum integration (disabled by default)
-# Use profiles/with-ralph.yaml to enable
+# Ralph Wiggum integration settings
 ralph:
-  ralph_integration: false
+  ralph_integration: true
+  ralph_default_iterations: 20
+  ralph_progress_tracking: true
+  ralph_progress_dir: ".ralph"
 
 output:
   skills:
     - claim-issue
     - check-workflow
     - submit-pr
+    - ralph/ralph-task
+    - ralph/ralph-status
     - README.md
   docs:
     - QUICK-REFERENCE.md
     - FAQ-AGENTS.md
     - CODEBASE-MAP.md
+    - agents-sections/10-ralph-integration.md
