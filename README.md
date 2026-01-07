@@ -39,11 +39,12 @@ If you're a Claude Code agent asked to optimize a project:
 ```
 your-project/
 ├── .claude/
-│   └── skills/
-│       ├── claim-issue      # Claim issue + create branch (1 API call)
-│       ├── check-workflow   # Validate workflow state (1 API call)
-│       ├── submit-pr        # Create PR + update labels (1 API call)
-│       └── README.md
+│   ├── skills/
+│   │   ├── claim-issue      # Claim issue + create branch (1 API call)
+│   │   ├── check-workflow   # Validate workflow state (1 API call)
+│   │   ├── submit-pr        # Create PR + update labels (1 API call)
+│   │   └── README.md
+│   └── settings.local.json  # Pre-configured Claude Code permissions
 └── docs/
     ├── QUICK-REFERENCE.md   # Fast navigation for agents
     ├── FAQ-AGENTS.md        # Pre-answered questions
@@ -106,6 +107,9 @@ claude-workflow-toolkit/
 │   │   ├── submit-pr.sh.template
 │   │   └── README.md.template
 │   │
+│   ├── .claude/
+│   │   └── settings.local.json.template  # Claude Code permissions
+│   │
 │   └── docs/                   # Documentation templates
 │       ├── QUICK-REFERENCE.md.template
 │       ├── FAQ-AGENTS.md.template
@@ -122,7 +126,21 @@ claude-workflow-toolkit/
 │   └── applied/               # Example generated output
 │
 └── scripts/
+    ├── setup-labels.sh        # Create required GitHub labels
     └── validate-templates.sh  # Template syntax validator
+```
+
+## Setup Scripts
+
+### `scripts/setup-labels.sh`
+
+Creates the required GitHub labels in your repository:
+- **Workflow labels**: `agent-ready`, `in-progress`, `needs-review`, `blocked`
+- **Phase labels**: `phase-0` through `phase-6`
+- **Type labels**: `bug`, `enhancement`, `documentation`
+
+```bash
+./scripts/setup-labels.sh
 ```
 
 ## Why Use This?
