@@ -1,4 +1,4 @@
-# Quick Reference for Claude Code Agents
+# Quick Reference for Claude & Codex Agents
 
 > **Example output** - This shows what generated documentation looks like after applying the toolkit with the `node-npm` profile.
 
@@ -33,7 +33,7 @@
 |----------|---------------|--------------|
 | [FAQ-AGENTS.md](FAQ-AGENTS.md) | Common questions pre-answered | Before reading longer docs |
 | [CODEBASE-MAP.md](CODEBASE-MAP.md) | File navigation guide | Finding code |
-| [.claude/skills/README.md](../.claude/skills/README.md) | Workflow skills documentation | Using skills |
+| [.claude/skills/README.md](../.claude/skills/README.md) | Workflow skills (mirrored at `.codex/skills`) | Using skills |
 
 ---
 

@@ -1,4 +1,4 @@
-# Quick Reference for Claude Code Agents
+# Quick Reference for Claude & Codex Agents
 
 > **Start here!** Fast navigation to all project documentation.
 
@@ -33,7 +33,7 @@
 |----------|---------------|--------------|
 | [FAQ-AGENTS.md](FAQ-AGENTS.md) | Common questions pre-answered | Before reading longer docs |
 | [CODEBASE-MAP.md](CODEBASE-MAP.md) | File navigation guide | Finding code |
-| [{{SKILLS_DIR}}/README.md](../{{SKILLS_DIR}}/README.md) | Workflow skills documentation | Using skills |
+| [{{SKILLS_DIR}}/README.md](../{{SKILLS_DIR}}/README.md) | Workflow skills (mirrored at `{{CODEX_SKILLS_DIR}}`) | Using skills |
 
 ---
 

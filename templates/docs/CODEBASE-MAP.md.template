@@ -8,11 +8,12 @@
 
 ```
 {{PROJECT_NAME}}/
-├── {{SKILLS_DIR}}/          # Claude Code workflow skills
+├── {{SKILLS_DIR}}/          # Canonical workflow skills (Claude + Codex)
 │   ├── claim-issue          # Claim issue + create branch
 │   ├── check-workflow       # Validate workflow state
 │   ├── submit-pr            # Create PR + update labels
 │   └── README.md            # Skills documentation
+├── {{CODEX_SKILLS_DIR}} -> {{SKILLS_DIR}}  # Codex mirror (symlink recommended)
 │
 ├── {{DOCS_DIR}}/            # Documentation
 │   ├── QUICK-REFERENCE.md   # Navigation hub (you're here)
@@ -109,7 +110,7 @@ try {
 
 - [QUICK-REFERENCE.md](QUICK-REFERENCE.md) - Fast navigation
 - [FAQ-AGENTS.md](FAQ-AGENTS.md) - Common questions
-- [{{SKILLS_DIR}}/README.md](../{{SKILLS_DIR}}/README.md) - Workflow skills
+- [{{SKILLS_DIR}}/README.md](../{{SKILLS_DIR}}/README.md) - Workflow skills (mirrored at `{{CODEX_SKILLS_DIR}}`)
 
 ---
 

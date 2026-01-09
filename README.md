@@ -1,6 +1,6 @@
 # Claude Workflow Toolkit
 
-A reusable template system for optimizing Claude Code agent workflows across any project.
+A reusable template system for optimizing Claude Code and Codex agent workflows across any project.
 
 ## What This Does
 
@@ -18,9 +18,9 @@ This toolkit provides:
 
 ## Quick Start
 
-### For Claude Code Agents
+### For Claude Code or Codex Agents
 
-If you're a Claude Code agent asked to optimize a project:
+If you're a Claude Code or Codex agent asked to optimize a project:
 
 1. Read `SKILL.md` for detailed instructions
 2. Identify the target project's tech stack
@@ -30,7 +30,7 @@ If you're a Claude Code agent asked to optimize a project:
 ### For Humans
 
 1. Clone this repo alongside your project
-2. Ask your Claude Code agent to "optimize this project using the workflow toolkit"
+2. Ask your Claude Code or Codex agent to "optimize this project using the workflow toolkit"
 3. Review and commit the generated files
 4. Optionally delete the toolkit clone (your project is now self-contained)
 
@@ -39,16 +39,28 @@ If you're a Claude Code agent asked to optimize a project:
 ```
 your-project/
 ├── .claude/
-│   ├── skills/
+│   ├── skills/              # Canonical skill scripts for both agents
 │   │   ├── claim-issue      # Claim issue + create branch (1 API call)
 │   │   ├── check-workflow   # Validate workflow state (1 API call)
 │   │   ├── submit-pr        # Create PR + update labels (1 API call)
 │   │   └── README.md
 │   └── settings.local.json  # Pre-configured Claude Code permissions
+├── .codex/
+│   └── skills -> ../.claude/skills  # Mirror so Codex sees the same commands
 └── docs/
     ├── QUICK-REFERENCE.md   # Fast navigation for agents
     ├── FAQ-AGENTS.md        # Pre-answered questions
     └── CODEBASE-MAP.md      # Annotated directory structure
+```
+
+### Dual-Agent Skills (Claude + Codex)
+
+Keep one canonical skills folder and mirror it for Codex so both agents run the same commands:
+
+```bash
+mkdir -p .codex
+rm -rf .codex/skills
+ln -s ../.claude/skills .codex/skills  # adjust if you customize SKILLS_DIR
 ```
 
 ## Profiles
@@ -90,13 +102,16 @@ All templates use `{{VARIABLE}}` syntax for placeholders:
 | `{{LINT_COMMAND}}` | How to check style | `npm run lint` |
 | `{{PHASE_PREFIX}}` | Phase label prefix | `phase-` |
 | `{{SKILLS_DIR}}` | Skills directory | `.claude/skills` |
+| `{{CODEX_SKILLS_DIR}}` | Codex skills mirror (symlink to skills) | `.codex/skills` |
 | `{{DOCS_DIR}}` | Docs directory | `docs` |
+
+Keep `{{SKILLS_DIR}}` as the canonical skill location and point `{{CODEX_SKILLS_DIR}}` at the same files (symlink recommended) so Claude and Codex use identical commands.
 
 ## Repository Structure
 
 ```
 claude-workflow-toolkit/
-├── SKILL.md                    # Instructions for Claude agents
+├── SKILL.md                    # Instructions for Claude/Codex agents
 ├── README.md                   # This file (human documentation)
 ├── LICENSE                     # MIT License
 │
@@ -197,8 +212,9 @@ MIT License - See [LICENSE](LICENSE)
 ## Related Projects
 
 - [Claude Code](https://claude.ai/claude-code) - Anthropic's official CLI for Claude
+- Codex agents - Mirror `.claude/skills` to `.codex/skills` so Codex runs the same skills
 - [GitHub CLI](https://cli.github.com/) - GitHub's official command line tool
 
 ---
 
-**Created to reduce token usage and improve workflow consistency for Claude Code agents.**
+**Created to reduce token usage and improve workflow consistency for Claude Code and Codex agents.**

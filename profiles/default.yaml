@@ -8,6 +8,7 @@ project:
 
 workflow:
   skills_dir: ".claude/skills"
+  codex_skills_dir: ".codex/skills"
   docs_dir: "docs"
   phase_prefix: "phase-"
   phase_count: 6

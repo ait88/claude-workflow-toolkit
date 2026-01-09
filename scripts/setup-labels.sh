@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Setup required GitHub labels for Claude Code workflow
+# Setup required GitHub labels for Claude/Codex workflow
 # Usage: ./scripts/setup-labels.sh
 
 set -euo pipefail
@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo "Setting up GitHub labels for Claude Code workflow..."
+echo "Setting up GitHub labels for Claude/Codex workflow..."
 echo ""
 
 # Check gh CLI is available

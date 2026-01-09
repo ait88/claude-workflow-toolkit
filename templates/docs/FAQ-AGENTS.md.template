@@ -14,7 +14,7 @@
 3. Validate: `/check-workflow`
 4. Submit: `/submit-pr`
 
-**Full details:** See [{{SKILLS_DIR}}/README.md](../{{SKILLS_DIR}}/README.md)
+**Full details:** See [{{SKILLS_DIR}}/README.md](../{{SKILLS_DIR}}/README.md) (mirrored at `{{CODEX_SKILLS_DIR}}`)
 
 ---
 

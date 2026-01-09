@@ -1,6 +1,6 @@
-# Claude Code Workflow Skills
+# Claude & Codex Workflow Skills
 
-Optimized skill commands for Claude Code agents working on this repository.
+Optimized skill commands for Claude Code and Codex agents working on this repository. Skills live in `{{SKILLS_DIR}}` and should be mirrored to `{{CODEX_SKILLS_DIR}}` (symlink recommended) so both agents run the same commands.
 
 ## Available Skills
 

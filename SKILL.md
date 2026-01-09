@@ -2,12 +2,12 @@
 
 ## Purpose
 
-This toolkit provides templates and patterns for optimizing Claude Code agent workflows in any repository. Use it to apply consistent, efficient workflow automation to a target project.
+This toolkit provides templates and patterns for optimizing Claude Code and Codex agent workflows in any repository. Use it to apply consistent, efficient workflow automation to a target project.
 
 ## When to Use This Toolkit
 
 Use this toolkit when:
-- Setting up a new project for Claude Code agent collaboration
+- Setting up a new project for Claude Code or Codex agent collaboration
 - Optimizing an existing project's agent workflow
 - Updating a project to latest workflow best practices
 
@@ -47,7 +47,10 @@ Each template uses `{{VARIABLE}}` placeholders. Common variables:
 | `{{PHASE_PREFIX}}` | Label prefix for phases | `phase-` |
 | `{{PHASE_COUNT}}` | Number of phases (0-indexed) | `6` |
 | `{{SKILLS_DIR}}` | Where skills live | `.claude/skills` |
+| `{{CODEX_SKILLS_DIR}}` | Where Codex reads the mirrored skills | `.codex/skills` |
 | `{{DOCS_DIR}}` | Documentation directory | `docs` |
+
+Use `{{SKILLS_DIR}}` as the canonical location (default `.claude/skills`) and keep `{{CODEX_SKILLS_DIR}}` as a symlink or copy pointing at the same files for Codex agents.
 
 ### Step 4: Generate Files
 
@@ -56,14 +59,16 @@ For each template:
 2. Replace all `{{VARIABLE}}` placeholders with project-specific values
 3. Write to the target project location
 4. Make skill scripts executable (`chmod +x`)
+5. Mirror skills for Codex: ensure `{{CODEX_SKILLS_DIR}}` points to the same files (symlink recommended)
 
 ### Step 5: Verify Installation
 
 After applying:
 1. Verify skills are executable: `ls -la {{SKILLS_DIR}}/`
-2. Test claim-issue with a test issue number
-3. Run check-workflow to verify it detects current state
-4. Review generated documentation for accuracy
+2. Confirm Codex mirror exists: `ls -la {{CODEX_SKILLS_DIR}}/` (symlink or copy of `{{SKILLS_DIR}}`)
+3. Test claim-issue with a test issue number
+4. Run check-workflow to verify it detects current state
+5. Review generated documentation for accuracy
 
 ## Template Reference
 
@@ -132,9 +137,10 @@ When applying this toolkit to a target project:
    b. Substitute {{VARIABLES}} with project values
    c. Write to target path
    d. Set permissions (chmod +x for scripts)
-5. Update target project's .gitignore if needed
-6. Test the generated skills
-7. Commit changes to target project
+5. Mirror skills for Codex (symlink `{{CODEX_SKILLS_DIR}}` to `{{SKILLS_DIR}}` or copy files)
+6. Update target project's .gitignore if needed
+7. Test the generated skills
+8. Commit changes to target project
 ```
 
 ## Output Structure
@@ -144,12 +150,13 @@ After applying, the target project will have:
 ```
 target-project/
 ├── .claude/
-│   ├── skills/
+│   ├── skills/              # Canonical skills for both agents
 │   │   ├── claim-issue      # Claim issue + create branch
 │   │   ├── check-workflow   # Validate workflow state
 │   │   ├── submit-pr        # Create PR + update labels
 │   │   └── README.md        # Skills documentation
 │   └── settings.local.json  # Pre-configured Claude Code permissions
+├── {{CODEX_SKILLS_DIR}} -> {{SKILLS_DIR}}  # Codex mirror of the skills
 └── {{DOCS_DIR}}/
     ├── QUICK-REFERENCE.md   # Navigation hub
     ├── FAQ-AGENTS.md        # Pre-answered questions
@@ -190,11 +197,12 @@ Install jq:
 - Ubuntu/Debian: `sudo apt-get install jq`
 - RHEL/CentOS: `sudo yum install jq`
 
-### Skills not appearing as slash commands
-Skills should be in `{{SKILLS_DIR}}/` directory. Verify:
-1. Files exist and are executable
-2. Files have no `.sh` extension (just `claim-issue`, not `claim-issue.sh`)
-3. Claude Code is restarted after adding skills
+### Skills not appearing as slash commands (Claude or Codex)
+Skills should be in `{{SKILLS_DIR}}/` with a mirror at `{{CODEX_SKILLS_DIR}}`. Verify:
+1. Files exist and are executable in the canonical `{{SKILLS_DIR}}`
+2. `{{CODEX_SKILLS_DIR}}` points to the same scripts (symlink or copy)
+3. Files have no `.sh` extension (just `claim-issue`, not `claim-issue.sh`)
+4. The agent (Claude or Codex) is restarted after adding skills
 
 ### SSH authentication fails
 The skill templates include automatic SSH/HTTPS fallback. If SSH fails, they'll attempt to use `gh auth setup-git` to configure HTTPS authentication. Ensure:

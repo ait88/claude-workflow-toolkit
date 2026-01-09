@@ -1,8 +1,8 @@
-# Claude Code Workflow Skills
+# Claude & Codex Workflow Skills
 
 > **Example output** - This shows what generated skills look like after applying the toolkit.
 
-Optimized skill commands for Claude Code agents working on this repository.
+Optimized skill commands for Claude Code and Codex agents working on this repository. Skills live in `.claude/skills` and should be mirrored to `.codex/skills` (symlink recommended) so both agents run the same commands.
 
 ## Available Skills
 
