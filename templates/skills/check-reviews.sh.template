@@ -6,6 +6,33 @@
 
 set -euo pipefail
 
+# Toolkit update check (silent unless updates available)
+_check_toolkit_updates() {
+    local toolkit_dir="${HOME}/claude-workflow-toolkit"
+    local version_file=".claude/toolkit-version"
+
+    # Skip if toolkit doesn't exist or version file missing
+    [[ -d "$toolkit_dir/.git" ]] || return 0
+    [[ -f "$version_file" ]] || return 0
+
+    # Get stored commit
+    local stored_commit
+    stored_commit=$(grep "^TOOLKIT_COMMIT=" "$version_file" 2>/dev/null | cut -d'"' -f2)
+    [[ -n "$stored_commit" ]] || return 0
+
+    # Get current toolkit commit (quick local check, no fetch)
+    local current_commit
+    current_commit=$(git -C "$toolkit_dir" rev-parse HEAD 2>/dev/null) || return 0
+
+    # Only notify if different
+    if [[ "$stored_commit" != "$current_commit" ]]; then
+        echo "NOTE: Workflow toolkit updates available in ~/claude-workflow-toolkit"
+        echo "      (Applied: ${stored_commit:0:7}, Current: ${current_commit:0:7})"
+        echo ""
+    fi
+}
+_check_toolkit_updates
+
 echo "Checking for PRs needing review response..."
 echo ""
 

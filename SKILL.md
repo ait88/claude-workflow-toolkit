@@ -53,6 +53,8 @@ Each template uses `{{VARIABLE}}` placeholders. Common variables:
 | `{{CODEX_BOT_USER}}` | Codex review bot username | `chatgpt-codex-connector[bot]` |
 | `{{TEST_UNIT_COMMAND}}` | Unit test command | `npm run test:unit` |
 | `{{TEST_INTEGRATION_COMMAND}}` | Integration test command | `npm run test:integration` |
+| `{{TOOLKIT_SOURCE}}` | Path to toolkit source | `~/claude-workflow-toolkit` |
+| `{{TOOLKIT_COMMIT}}` | Git commit hash when applied | `a37ae2d...` |
 
 Use `{{SKILLS_DIR}}` as the canonical location (default `.claude/skills`) and keep `{{CODEX_SKILLS_DIR}}` as a symlink or copy pointing at the same files for Codex agents.
 
@@ -209,6 +211,7 @@ target-project/
 │   │   ├── claim-issue.md
 │   │   ├── check-workflow.md
 │   │   └── submit-pr.md
+│   ├── toolkit-version      # Tracks applied toolkit version
 │   ├── SECURITY-CHECKLIST.md  # Tech-specific security guide
 │   └── settings.local.json  # Pre-configured Claude Code permissions
 ├── {{CODEX_SKILLS_DIR}} -> {{SKILLS_DIR}}  # Codex mirror of the skills
@@ -235,6 +238,40 @@ When updating the toolkit:
 1. Update templates in this repo
 2. For projects using this toolkit, re-run the application process
 3. Projects can diff changes and selectively adopt updates
+
+## Automatic Update Check
+
+The `/check-reviews` skill automatically checks for toolkit updates once per session:
+
+- **Silent by default**: No output if toolkit is current or not installed
+- **Minimal overhead**: Uses local git comparison only (no network fetch)
+- **Non-blocking**: Displays a note and continues with normal operation
+
+When updates are available, you'll see:
+```
+NOTE: Workflow toolkit updates available in ~/claude-workflow-toolkit
+      (Applied: a37ae2d, Current: b48bf3e)
+```
+
+To apply updates:
+1. Review changes in the toolkit: `git -C ~/claude-workflow-toolkit log --oneline`
+2. Re-run the application process with updated templates
+3. The `toolkit-version` file will be updated automatically
+
+### Generating toolkit-version
+
+When applying the toolkit, generate the version file:
+
+```bash
+# Get current toolkit commit
+TOOLKIT_COMMIT=$(git -C ~/claude-workflow-toolkit rev-parse HEAD)
+
+# Substitute in template
+sed "s/{{TOOLKIT_SOURCE}}/~\/claude-workflow-toolkit/g; \
+     s/{{TOOLKIT_COMMIT}}/$TOOLKIT_COMMIT/g; \
+     s/{{CURRENT_DATE}}/$(date +%Y-%m-%d)/g" \
+    templates/.claude/toolkit-version.template > target/.claude/toolkit-version
+```
 
 ## Troubleshooting
 
