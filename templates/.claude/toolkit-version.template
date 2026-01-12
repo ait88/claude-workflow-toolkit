@@ -1,0 +1,6 @@
+# Claude Workflow Toolkit Version
+# Auto-generated - do not edit manually
+
+TOOLKIT_SOURCE="{{TOOLKIT_SOURCE}}"
+TOOLKIT_COMMIT="{{TOOLKIT_COMMIT}}"
+TOOLKIT_APPLIED="{{CURRENT_DATE}}"
