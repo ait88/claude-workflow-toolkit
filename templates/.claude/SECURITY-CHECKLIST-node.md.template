@@ -1,0 +1,230 @@
+# Node.js Security Checklist
+
+> **Use this checklist before EVERY commit**
+>
+> Security vulnerabilities are unacceptable. When in doubt, ask for review.
+
+---
+
+## Input Validation
+
+All user input MUST be validated before use:
+
+- [ ] **Request body:** Validate structure and types
+- [ ] **Query parameters:** Validate against expected format
+- [ ] **Path parameters:** Validate format and existence
+- [ ] **Headers:** Don't trust custom headers blindly
+- [ ] **File uploads:** Validate type, size, and content
+
+**Recommended libraries:**
+- `joi` or `zod` for schema validation
+- `express-validator` for Express middleware
+- `validator` for string validation
+
+**Example:**
+```javascript
+// Good - using zod
+const userSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1).max(100),
+  age: z.number().int().min(0).max(150)
+});
+
+const validated = userSchema.parse(req.body);
+
+// Bad - no validation
+const { email, name, age } = req.body;
+```
+
+---
+
+## Output Encoding
+
+All output MUST be escaped for context:
+
+### HTML Context
+- [ ] **Use template engines:** They auto-escape by default (EJS, Handlebars, Pug)
+- [ ] **React/Vue:** Use framework's built-in escaping
+- [ ] **Manual escaping:** `he.encode()` or similar
+
+### JSON Context
+- [ ] **Use JSON.stringify():** Never build JSON manually
+- [ ] **Set Content-Type:** `application/json`
+
+### URL Context
+- [ ] **Use encodeURIComponent():** For query parameters
+- [ ] **Use URL constructor:** For building URLs
+
+**Example:**
+```javascript
+// Good - using template engine auto-escape
+res.render('user', { name: user.name });
+
+// Bad - manual string concatenation
+res.send(`<h1>${user.name}</h1>`);  // XSS vulnerability
+```
+
+---
+
+## Authentication & Authorization
+
+### Session Management
+- [ ] **Use secure session library:** `express-session` with secure store
+- [ ] **Set secure cookie flags:** `httpOnly`, `secure`, `sameSite`
+- [ ] **Regenerate session:** After login/logout
+- [ ] **Set appropriate expiry:** Don't keep sessions forever
+
+### JWT Best Practices
+- [ ] **Use strong secrets:** At least 256 bits
+- [ ] **Set appropriate expiry:** Short-lived tokens
+- [ ] **Validate all claims:** issuer, audience, expiry
+- [ ] **Store securely:** HttpOnly cookies or secure storage
+
+### Authorization
+- [ ] **Check on every request:** Middleware pattern
+- [ ] **Principle of least privilege:** Minimal permissions
+- [ ] **Validate ownership:** Users can only access their data
+
+**Example:**
+```javascript
+// Good - session configuration
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 3600000  // 1 hour
+  },
+  resave: false,
+  saveUninitialized: false
+}));
+```
+
+---
+
+## SQL/NoSQL Injection Prevention
+
+### SQL Databases
+- [ ] **Use parameterized queries:** Never concatenate strings
+- [ ] **Use ORM/query builder:** Sequelize, Knex, Prisma
+- [ ] **Validate input types:** Numbers, strings, etc.
+
+### NoSQL Databases
+- [ ] **Don't use $where:** It allows code execution
+- [ ] **Validate query structure:** Prevent operator injection
+- [ ] **Use ODM:** Mongoose with strict schemas
+
+**Example:**
+```javascript
+// Good - parameterized query
+const user = await db.query(
+  'SELECT * FROM users WHERE email = $1',
+  [email]
+);
+
+// Bad - string concatenation
+const user = await db.query(
+  `SELECT * FROM users WHERE email = '${email}'`  // SQL injection
+);
+```
+
+---
+
+## Dependency Security
+
+### npm Security
+- [ ] **Run npm audit:** `npm audit` before release
+- [ ] **Fix vulnerabilities:** `npm audit fix`
+- [ ] **Use lockfile:** Commit `package-lock.json`
+- [ ] **Review new dependencies:** Check security, maintenance
+
+### Best Practices
+- [ ] **Minimal dependencies:** Less code = smaller attack surface
+- [ ] **Pin versions:** Use exact versions or lockfile
+- [ ] **Monitor advisories:** Subscribe to security alerts
+
+---
+
+## Environment & Secrets
+
+### Environment Variables
+- [ ] **Never commit secrets:** Use `.env` files (gitignored)
+- [ ] **Validate env vars:** Check required vars on startup
+- [ ] **Use secret manager:** In production (AWS Secrets Manager, Vault)
+
+### Sensitive Data
+- [ ] **Never log secrets:** Redact in logs
+- [ ] **Never expose in errors:** Generic error messages
+- [ ] **Encrypt at rest:** Sensitive database fields
+
+**Example:**
+```javascript
+// Good - validate on startup
+const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET', 'API_KEY'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    throw new Error(`Missing required environment variable: ${envVar}`);
+  }
+}
+```
+
+---
+
+## HTTP Security Headers
+
+- [ ] **Use helmet:** `app.use(helmet())`
+- [ ] **Content-Security-Policy:** Prevent XSS
+- [ ] **X-Frame-Options:** Prevent clickjacking
+- [ ] **X-Content-Type-Options:** Prevent MIME sniffing
+- [ ] **Strict-Transport-Security:** Force HTTPS
+
+---
+
+## Rate Limiting
+
+- [ ] **Implement rate limiting:** `express-rate-limit`
+- [ ] **Auth endpoints:** Stricter limits
+- [ ] **API endpoints:** Reasonable limits
+- [ ] **Use in-memory or Redis:** For distributed systems
+
+---
+
+## Auto-Reject Patterns
+
+**These patterns will fail code review:**
+
+```javascript
+// NEVER do this
+eval(userInput);                    // Code injection
+exec(userInput);                    // Command injection
+new Function(userInput)();          // Code injection
+db.query(`SELECT * FROM users WHERE id = ${id}`);  // SQL injection
+res.send(`<div>${userInput}</div>`);  // XSS
+require(userInput);                  // Arbitrary code execution
+```
+
+---
+
+## Before Committing
+
+Final checklist:
+
+- [ ] All inputs validated
+- [ ] All outputs properly escaped
+- [ ] Authentication/authorization verified
+- [ ] No credentials in code
+- [ ] npm audit clean
+- [ ] Tests pass: `{{TEST_COMMAND}}`
+- [ ] Lint passes: `{{LINT_COMMAND}}`
+
+---
+
+## Additional Resources
+
+- [OWASP Node.js Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Nodejs_Security_Cheat_Sheet.html)
+- [npm Security Best Practices](https://docs.npmjs.com/packages-and-modules/securing-your-code)
+
+---
+
+**When in doubt, ask for review. Security is not optional.**

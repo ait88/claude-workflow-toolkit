@@ -9,9 +9,15 @@ project:
 
 commands:
   test: "poetry run pytest"
+  test_unit: "poetry run pytest tests/unit"
+  test_integration: "poetry run pytest tests/integration"
   lint: "poetry run ruff check ."
   format: "poetry run ruff format ."
   typecheck: "poetry run mypy ."
+
+output:
+  security:
+    - SECURITY-CHECKLIST-python.md
 
 conventions:
   file_encoding: "UTF-8"

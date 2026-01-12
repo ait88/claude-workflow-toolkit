@@ -1,0 +1,59 @@
+---
+name: address-review
+description: Checkout PR branch and display review feedback for addressing.
+version: 1.0.0
+---
+
+# Address Review
+
+Checkout a PR branch and display all review feedback for addressing.
+
+## Usage
+
+```bash
+/address-review <pr-number>
+```
+
+## What it does
+
+1. Fetches PR details (title, branch, state, author)
+2. Checks out the PR branch automatically
+3. Displays Codex review suggestions with file locations
+4. Shows human review comments organized by file
+5. Lists general PR review comments
+6. Provides step-by-step fix workflow
+
+## Benefits
+
+- Single command to switch context and see all feedback
+- File locations help navigate to issues quickly
+- Clear separation of Codex vs human feedback
+- Includes test and commit commands for convenience
+
+## Requirements
+
+- GitHub CLI (`gh`) - authenticated and configured
+- `git` - for branch operations
+- `jq` - JSON parsing
+
+## Example
+
+```bash
+/address-review 42
+```
+
+Output shows:
+- PR title and metadata
+- Branch checkout confirmation
+- All Codex suggestions with file:line references
+- Human review comments by file
+- General PR-level comments
+
+## Next Steps
+
+After addressing feedback:
+
+1. Run tests: `{{TEST_COMMAND}}`
+2. Commit: `git commit -m 'fix: address review feedback'`
+3. Push: `git push`
+4. Notify: `gh pr comment <pr> --body 'Addressed feedback'`

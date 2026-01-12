@@ -73,21 +73,24 @@ echo ""
 
 # Check that all templates use consistent placeholder format
 echo "Checking placeholder format..."
-for template in "$ROOT_DIR"/templates/**/*.template; do
+
+# Find all template files recursively
+find "$ROOT_DIR/templates" -name "*.template" -type f | while read -r template; do
     if [[ ! -f "$template" ]]; then
         continue
     fi
 
-    filename=$(basename "$template")
+    # Get relative path for better output
+    relative_path="${template#$ROOT_DIR/templates/}"
 
     # Find any malformed placeholders (missing closing braces, etc.)
     if grep -qE '\{\{[^}]+$' "$template" || grep -qE '^[^{]*\}\}' "$template"; then
-        echo -e "  ${RED}ERROR${NC} $filename - Malformed placeholder"
+        echo -e "  ${RED}ERROR${NC} $relative_path - Malformed placeholder"
         ((ERRORS++))
     else
         # Count placeholders
         count=$(grep -oE '\{\{[^}]+\}\}' "$template" | wc -l)
-        echo -e "  ${GREEN}OK${NC} $filename ($count placeholders)"
+        echo -e "  ${GREEN}OK${NC} $relative_path ($count placeholders)"
     fi
 done
 

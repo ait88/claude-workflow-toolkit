@@ -9,8 +9,14 @@ project:
 
 commands:
   test: "composer test"
+  test_unit: "composer test:unit"
+  test_integration: "composer test:integration"
   lint: "composer phpcs"
   format: "composer phpcbf"
+
+output:
+  security:
+    - SECURITY-CHECKLIST-php.md
 
 conventions:
   file_encoding: "UTF-8"

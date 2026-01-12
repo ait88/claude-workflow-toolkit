@@ -1,0 +1,52 @@
+---
+name: check-workflow
+description: Validates your current workflow state using optimized GraphQL queries.
+version: 1.0.0
+---
+
+# Check Workflow
+
+Validates your current workflow state using optimized GraphQL queries.
+
+## Usage
+
+```bash
+/check-workflow
+```
+
+## What it does
+
+1. Extracts issue number from current branch name
+2. Fetches issue and PR data in a single GraphQL query
+3. Validates labels match current stage (in-progress vs needs-review)
+4. Checks for phase labels and blocked issues
+5. Provides actionable fix commands
+
+## Benefits
+
+- Single GraphQL query replaces 4-5 REST API calls
+- Color-coded output for quick scanning
+- Exit code 0 for success, 1 for errors
+- **Reduces API calls by 75-80%**
+
+## Requirements
+
+- GitHub CLI (`gh`) - authenticated and configured
+- `jq` - JSON parsing
+- Current branch name should follow pattern: `<issue-number>-<slug>`
+
+## Example Output
+
+Typical output shows:
+- Current issue number and title
+- PR status if one exists
+- Label validation (in-progress, needs-review, etc.)
+- Phase label check
+- Suggested fixes if issues found
+
+## Next Steps
+
+If `/check-workflow` reports problems:
+- Fix labels using suggested `gh` commands
+- Verify branch name matches issue number
+- Check PR status and re-run if needed

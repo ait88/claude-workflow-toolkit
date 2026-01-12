@@ -9,9 +9,11 @@ project:
 workflow:
   skills_dir: ".claude/skills"
   codex_skills_dir: ".codex/skills"
+  commands_dir: ".claude/commands"
   docs_dir: "docs"
   phase_prefix: "phase-"
   phase_count: 6
+  codex_bot_user: "chatgpt-codex-connector[bot]"
 
 labels:
   ready: "agent-ready"
@@ -21,6 +23,8 @@ labels:
 
 commands:
   test: "echo 'No test command configured'"
+  test_unit: ""
+  test_integration: ""
   lint: "echo 'No lint command configured'"
 
 commit:
@@ -39,11 +43,21 @@ branch:
 
 output:
   skills:
+    - check-reviews
+    - address-review
     - claim-issue
     - check-workflow
     - submit-pr
     - README.md
+  commands:
+    - check-reviews
+    - address-review
+    - claim-issue
+    - check-workflow
+    - submit-pr
   docs:
     - QUICK-REFERENCE.md
     - FAQ-AGENTS.md
     - CODEBASE-MAP.md
+  security:
+    - SECURITY-CHECKLIST.md

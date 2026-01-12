@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# Skill: /address-review
+# Description: Checkout PR branch and show review feedback for addressing
+# Usage: /address-review <pr-number>
+
+set -euo pipefail
+
+PR_NUMBER="${1:-}"
+
+if [[ -z "$PR_NUMBER" ]]; then
+    echo "Error: PR number required"
+    echo ""
+    echo "Usage: /address-review <pr-number>"
+    echo ""
+    echo "Find PRs with reviews using:"
+    echo "  /check-reviews"
+    exit 1
+fi
+
+echo "Fetching review details for PR #$PR_NUMBER..."
+echo ""
+
+# Get repository info dynamically
+REPO_INFO=$(gh repo view --json owner,name)
+OWNER=$(echo "$REPO_INFO" | jq -r '.owner.login')
+REPO=$(echo "$REPO_INFO" | jq -r '.name')
+
+# Bot user for filtering Codex reviews
+CODEX_BOT="{{CODEX_BOT_USER}}"
+
+# Get PR details
+PR_INFO=$(gh pr view "$PR_NUMBER" --json title,headRefName,body,reviews,state,author)
+
+PR_TITLE=$(echo "$PR_INFO" | jq -r '.title')
+PR_BRANCH=$(echo "$PR_INFO" | jq -r '.headRefName')
+PR_STATE=$(echo "$PR_INFO" | jq -r '.state')
+PR_AUTHOR=$(echo "$PR_INFO" | jq -r '.author.login')
+
+echo "PR #$PR_NUMBER: $PR_TITLE"
+echo "   Branch: $PR_BRANCH"
+echo "   State: $PR_STATE"
+echo "   Author: $PR_AUTHOR"
+echo ""
+
+# Get current branch
+CURRENT_BRANCH=$(git branch --show-current)
+
+# Fetch and checkout PR branch
+echo "Fetching and checking out branch: $PR_BRANCH"
+git fetch origin "$PR_BRANCH"
+git checkout "$PR_BRANCH"
+
+echo ""
+echo "Checked out branch: $PR_BRANCH (was: $CURRENT_BRANCH)"
+echo ""
+echo "========================================"
+echo ""
+
+# Get Codex Review comments
+CODEX_COMMENTS=$(gh api "repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments" --jq "
+  .[] | select(.user.login == \"$CODEX_BOT\")
+" 2>/dev/null || echo "[]")
+
+if [[ "$CODEX_COMMENTS" != "[]" && -n "$CODEX_COMMENTS" ]]; then
+    echo "Codex Review Suggestions:"
+    echo ""
+
+    # Parse and display Codex comments
+    echo "$CODEX_COMMENTS" | jq -r '
+      "File: \(.path):\(.line // .original_line // "N/A")",
+      "",
+      (.body | split("\n")[0]),
+      "",
+      (.body | split("\n")[1:] | join("\n")),
+      "========================================",
+      ""
+    '
+else
+    echo "No Codex Review comments found."
+    echo ""
+fi
+
+# Get human review comments (if any)
+REVIEW_COMMENTS=$(gh api "repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments" --jq "
+  .[] | select(.user.login != \"$CODEX_BOT\")
+" 2>/dev/null || echo "[]")
+
+if [[ "$REVIEW_COMMENTS" != "[]" && -n "$REVIEW_COMMENTS" ]]; then
+    echo "Human Review Comments:"
+    echo ""
+
+    echo "$REVIEW_COMMENTS" | jq -r '
+      "File: \(.path):\(.line // .original_line // "N/A")",
+      "Reviewer: \(.user.login):",
+      "",
+      .body,
+      "========================================",
+      ""
+    '
+fi
+
+# Get PR review comments (not line-specific)
+PR_REVIEWS=$(echo "$PR_INFO" | jq -r '.reviews[] | select(.state == "CHANGES_REQUESTED" or .state == "COMMENTED")')
+
+if [[ -n "$PR_REVIEWS" ]]; then
+    echo "General PR Review Comments:"
+    echo ""
+
+    echo "$PR_REVIEWS" | jq -r '
+      "Reviewer: \(.author.login) [\(.state)]:",
+      "",
+      (.body // "(No comment body)"),
+      "========================================",
+      ""
+    '
+fi
+
+echo ""
+echo "Next Steps:"
+echo ""
+echo "  1. Review the suggestions above"
+echo "  2. Make necessary changes to address feedback"
+echo "  3. Test your changes:"
+echo "     {{TEST_UNIT_COMMAND}}"
+echo "     {{TEST_INTEGRATION_COMMAND}}"
+echo ""
+echo "  4. Commit and push:"
+echo "     git add -A"
+echo "     git commit -m 'fix: address review feedback (#$PR_NUMBER)'"
+echo "     git push"
+echo ""
+echo "  5. Comment on the PR to notify reviewers:"
+echo "     gh pr comment $PR_NUMBER --body 'Addressed review feedback'"
+echo ""

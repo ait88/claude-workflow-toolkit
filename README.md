@@ -5,14 +5,16 @@ A reusable template system for optimizing Claude Code and Codex agent workflows 
 ## What This Does
 
 This toolkit provides:
-- **Workflow Skills**: Bash scripts that automate GitHub issue/PR workflows with 70-80% fewer API calls
+- **Workflow Skills**: Bash scripts that automate GitHub issue/PR workflows with 60-80% fewer API calls
+- **Review-First Workflow**: Skills that ensure review feedback is addressed before new work begins
+- **Security Checklists**: Tech-specific security validation guides
 - **Documentation Templates**: Quick-reference docs that help agents navigate your codebase efficiently
 - **Project Profiles**: Pre-configured settings for common tech stacks
 
 ## How It Works
 
 1. **One-time application**: Run the toolkit against your project
-2. **Generates tailored files**: Skills and docs customized to your project
+2. **Generates tailored files**: Skills, docs, and checklists customized to your project
 3. **Project owns the output**: Your repo maintains its own copy, independent of this toolkit
 4. **Optional updates**: Re-run later to pull in new optimizations
 
@@ -20,7 +22,7 @@ This toolkit provides:
 
 ### For Claude Code or Codex Agents
 
-If you're a Claude Code or Codex agent asked to optimize a project:
+If you're a Claude Code or Codex agent asked to apply this toolkit:
 
 1. Read `SKILL.md` for detailed instructions
 2. Identify the target project's tech stack
@@ -29,8 +31,17 @@ If you're a Claude Code or Codex agent asked to optimize a project:
 
 ### For Humans
 
-1. Clone this repo alongside your project
-2. Ask your Claude Code or Codex agent to "optimize this project using the workflow toolkit"
+1. Clone this repo alongside your project:
+   ```bash
+   git clone https://github.com/ait88/claude-workflow-toolkit.git ~/claude-workflow-toolkit
+   ```
+
+2. Ask your Claude Code or Codex agent:
+   ```
+   Apply the workflow toolkit from ~/claude-workflow-toolkit to this project.
+   Read SKILL.md in the toolkit for instructions.
+   ```
+
 3. Review and commit the generated files
 4. Optionally delete the toolkit clone (your project is now self-contained)
 
@@ -40,11 +51,20 @@ If you're a Claude Code or Codex agent asked to optimize a project:
 your-project/
 ├── .claude/
 │   ├── skills/              # Canonical skill scripts for both agents
-│   │   ├── claim-issue      # Claim issue + create branch (1 API call)
-│   │   ├── check-workflow   # Validate workflow state (1 API call)
-│   │   ├── submit-pr        # Create PR + update labels (1 API call)
+│   │   ├── check-reviews    # Find PRs needing response (run first!)
+│   │   ├── address-review   # Show review feedback for a PR
+│   │   ├── claim-issue      # Claim issue + create branch
+│   │   ├── check-workflow   # Validate workflow state
+│   │   ├── submit-pr        # Create PR + update labels
 │   │   └── README.md
-│   └── settings.local.json  # Pre-configured Claude Code permissions
+│   ├── commands/            # Skill documentation for discoverability
+│   │   ├── check-reviews.md
+│   │   ├── address-review.md
+│   │   ├── claim-issue.md
+│   │   ├── check-workflow.md
+│   │   └── submit-pr.md
+│   ├── SECURITY-CHECKLIST.md  # Tech-specific security guide
+│   └── settings.local.json    # Pre-configured Claude Code permissions
 ├── .codex/
 │   └── skills -> ../.claude/skills  # Mirror so Codex sees the same commands
 └── docs/
@@ -76,18 +96,21 @@ ln -s ../.claude/skills .codex/skills  # adjust if you customize SKILLS_DIR
 ## API Efficiency
 
 ### Traditional workflow (manual commands)
+- Check for reviews: 5+ API calls
 - Claim issue: 3-4 API calls
 - Check workflow: 4-5 API calls
 - Submit PR: 2-3 API calls
-- **Total: ~12 API calls per issue**
+- **Total: ~15+ API calls per workflow cycle**
 
 ### With toolkit skills
+- Check reviews: 2-3 API calls
+- Address review: 2 API calls
 - Claim issue: 1 API call
-- Check workflow: 1 API call
+- Check workflow: 1 API call (GraphQL)
 - Submit PR: 1 API call
-- **Total: ~3 API calls per issue**
+- **Total: ~5-7 API calls per workflow cycle**
 
-**Result: 70-80% reduction in GitHub API usage**
+**Result: 60-80% reduction in GitHub API usage**
 
 ## Template Variables
 
@@ -99,11 +122,15 @@ All templates use `{{VARIABLE}}` syntax for placeholders:
 | `{{REPO_OWNER}}` | GitHub owner/org | `mycompany` |
 | `{{DEFAULT_BRANCH}}` | Main branch name | `main` |
 | `{{TEST_COMMAND}}` | How to run tests | `npm test` |
+| `{{TEST_UNIT_COMMAND}}` | Unit tests only | `npm run test:unit` |
+| `{{TEST_INTEGRATION_COMMAND}}` | Integration tests | `npm run test:integration` |
 | `{{LINT_COMMAND}}` | How to check style | `npm run lint` |
 | `{{PHASE_PREFIX}}` | Phase label prefix | `phase-` |
 | `{{SKILLS_DIR}}` | Skills directory | `.claude/skills` |
-| `{{CODEX_SKILLS_DIR}}` | Codex skills mirror (symlink to skills) | `.codex/skills` |
+| `{{CODEX_SKILLS_DIR}}` | Codex skills mirror | `.codex/skills` |
+| `{{COMMANDS_DIR}}` | Command docs directory | `.claude/commands` |
 | `{{DOCS_DIR}}` | Docs directory | `docs` |
+| `{{CODEX_BOT_USER}}` | Codex review bot username | `chatgpt-codex-connector[bot]` |
 
 Keep `{{SKILLS_DIR}}` as the canonical skill location and point `{{CODEX_SKILLS_DIR}}` at the same files (symlink recommended) so Claude and Codex use identical commands.
 
@@ -117,13 +144,26 @@ claude-workflow-toolkit/
 │
 ├── templates/
 │   ├── skills/                 # Workflow skill templates
-│   │   ├── claim-issue.sh.template
-│   │   ├── check-workflow.sh.template
-│   │   ├── submit-pr.sh.template
+│   │   ├── check-reviews.sh.template     # Review detection
+│   │   ├── address-review.sh.template    # Review addressing
+│   │   ├── claim-issue.sh.template       # Issue claiming
+│   │   ├── check-workflow.sh.template    # Workflow validation
+│   │   ├── submit-pr.sh.template         # PR submission
 │   │   └── README.md.template
 │   │
 │   ├── .claude/
-│   │   └── settings.local.json.template  # Claude Code permissions
+│   │   ├── commands/           # Skill documentation templates
+│   │   │   ├── check-reviews.md.template
+│   │   │   ├── address-review.md.template
+│   │   │   ├── claim-issue.md.template
+│   │   │   ├── check-workflow.md.template
+│   │   │   └── submit-pr.md.template
+│   │   ├── SECURITY-CHECKLIST.md.template       # Generic
+│   │   ├── SECURITY-CHECKLIST-php.md.template   # PHP/WordPress
+│   │   ├── SECURITY-CHECKLIST-node.md.template  # Node.js
+│   │   ├── SECURITY-CHECKLIST-python.md.template # Python
+│   │   ├── SECURITY-CHECKLIST-bash.md.template  # Bash
+│   │   └── settings.local.json.template
 │   │
 │   └── docs/                   # Documentation templates
 │       ├── QUICK-REFERENCE.md.template
@@ -162,6 +202,11 @@ Creates the required GitHub labels in your repository:
 
 ### Before (Manual Workflow)
 ```bash
+# Did anyone review my PRs? Manual checking...
+gh pr list --state open
+gh pr view 42 --comments
+# Easy to miss reviews and start new work prematurely
+
 # Claiming an issue - 4 separate commands
 gh issue view 35
 gh issue edit 35 --remove-label "agent-ready"
@@ -175,13 +220,24 @@ git checkout -b 35-feature-name
 
 ### After (Skill-Based Workflow)
 ```bash
-# One command does everything
-/claim-issue 35
+# First: Check if any reviews need attention
+/check-reviews
+# Shows all PRs with unaddressed feedback, with priority levels
 
-# Single API call
-# Atomic operation
-# Can't forget labels
+# Address any reviews found
+/address-review 42
+# Checks out PR branch, shows all feedback organized by file
+
+# Then claim new work
+/claim-issue 35
+# Single API call, atomic operation, can't forget labels
 ```
+
+### Key Benefits
+- **Review-first workflow**: Never start new work with unaddressed feedback
+- **Atomic operations**: Labels and branches updated together
+- **60-80% fewer API calls**: GraphQL and batching optimizations
+- **Security checklists**: Tech-specific guides for secure coding
 
 ## Contributing
 

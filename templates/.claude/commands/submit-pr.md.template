@@ -1,0 +1,62 @@
+---
+name: submit-pr
+description: Create a PR and update issue labels atomically.
+version: 1.0.0
+---
+
+# Submit PR
+
+Create a pull request and update issue labels atomically.
+
+## Usage
+
+```bash
+/submit-pr [title] [body]
+```
+
+Both title and body are optional - if omitted, values are auto-filled from commits.
+
+## What it does
+
+1. Validates not on {{DEFAULT_BRANCH}} branch
+2. Extracts issue number from branch name
+3. Pushes current branch to origin
+4. Creates PR (auto-fills from commits if no title provided)
+5. Adds "Closes #X" to link the issue
+6. Removes `in-progress` label from issue
+7. Adds `needs-review` label to issue
+
+## Examples
+
+```bash
+# Auto-fill title and body from commits
+/submit-pr
+
+# Custom title, auto body
+/submit-pr "feat: add authentication system"
+
+# Custom title and body
+/submit-pr "feat: add auth" "Implements OAuth2 login flow"
+```
+
+## Benefits
+
+- Atomic operation prevents inconsistent state
+- Auto-links PR to issue with "Closes #X"
+- Label updates ensure workflow visibility
+- **Reduces 3-4 API calls to 1**
+
+## Requirements
+
+- GitHub CLI (`gh`) - authenticated and configured
+- `git` - for push operations
+- Branch must have commits not on {{DEFAULT_BRANCH}}
+- Branch name should follow pattern: `<issue-number>-<slug>`
+
+## Next Steps
+
+After submitting a PR:
+
+1. Wait for CI checks to pass
+2. Address any review feedback with `/address-review`
+3. Check `/check-reviews` before starting new work

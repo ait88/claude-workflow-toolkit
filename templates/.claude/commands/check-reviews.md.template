@@ -1,0 +1,50 @@
+---
+name: check-reviews
+description: Find PRs with unaddressed review feedback. Run BEFORE looking for new issues.
+version: 1.0.0
+---
+
+# Check Reviews
+
+Find PRs with unaddressed review feedback from Codex and human reviewers.
+
+## Usage
+
+```bash
+/check-reviews
+```
+
+## What it does
+
+1. Lists all open PRs with reviews
+2. Shows review decision status for each PR
+3. Checks for Codex review comments with priority levels (P1/P2/P3)
+4. Displays priority breakdown for each PR
+5. Provides next steps guidance
+
+## Benefits
+
+- Ensures review feedback is addressed before starting new work
+- Detects both Codex and human review comments
+- Priority breakdown helps focus on critical issues first
+- Prevents context loss from switching issues
+
+## Requirements
+
+- GitHub CLI (`gh`) - authenticated and configured
+- `jq` - JSON parsing
+
+## Priority Levels
+
+| Level | Meaning | Action |
+|-------|---------|--------|
+| P1 | Critical | Must fix before merge |
+| P2 | Important | Should address |
+| P3 | Minor | Nice to have |
+
+## Next Steps
+
+After running `/check-reviews`:
+
+1. If reviews are found, use `/address-review <pr-number>`
+2. If no reviews, proceed with `/claim-issue <number>` for new work

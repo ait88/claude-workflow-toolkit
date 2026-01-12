@@ -1,0 +1,60 @@
+---
+name: claim-issue
+description: Atomically claim a GitHub issue and set up feature branch.
+version: 1.0.0
+---
+
+# Claim Issue
+
+Atomically claim an issue and set up your working branch.
+
+## Usage
+
+```bash
+/claim-issue <issue-number>
+```
+
+## What it does
+
+1. Fetches issue details from GitHub
+2. Validates issue is open and available
+3. Removes `agent-ready` label
+4. Adds `in-progress` label
+5. Creates and checks out feature branch: `<issue>-<title-slug>`
+
+## Example
+
+```bash
+/claim-issue 35
+```
+
+## Benefits
+
+- Atomic operation ensures consistent state
+- Auto-generates branch name from issue title
+- Handles existing branches gracefully
+- **Reduces 4-5 API calls to 1**
+
+## Requirements
+
+- GitHub CLI (`gh`) - authenticated and configured
+- `git` - for branch operations
+- `jq` - JSON parsing
+
+## Branch Naming
+
+Branches are automatically named:
+- Pattern: `<issue-number>-<title-slug>`
+- Max length: 60 characters
+- Special characters replaced with hyphens
+
+Example: Issue #35 "Add user authentication" becomes branch `35-add-user-authentication`
+
+## Next Steps
+
+After claiming an issue:
+
+1. Implement the feature
+2. Run tests: `{{TEST_COMMAND}}`
+3. Validate: `/check-workflow`
+4. Submit: `/submit-pr`

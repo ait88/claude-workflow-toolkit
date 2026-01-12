@@ -1,0 +1,123 @@
+# Security Checklist
+
+> **Use this checklist before EVERY commit**
+>
+> Security vulnerabilities are unacceptable. When in doubt, ask for review.
+
+---
+
+## OWASP Top 10 Quick Reference
+
+### 1. Injection
+- [ ] All user input sanitized/validated
+- [ ] Parameterized queries for all database operations
+- [ ] Never concatenate user input into commands
+
+### 2. Broken Authentication
+- [ ] Strong password requirements enforced
+- [ ] Multi-factor authentication where appropriate
+- [ ] Session tokens invalidated on logout
+
+### 3. Sensitive Data Exposure
+- [ ] Credentials never hardcoded
+- [ ] Sensitive data encrypted at rest
+- [ ] HTTPS enforced for all connections
+
+### 4. XML External Entities (XXE)
+- [ ] XML parsing configured to disable external entities
+- [ ] Use JSON instead of XML where possible
+
+### 5. Broken Access Control
+- [ ] Authorization checked on every request
+- [ ] Principle of least privilege applied
+- [ ] Direct object references validated
+
+### 6. Security Misconfiguration
+- [ ] Debug mode disabled in production
+- [ ] Default credentials changed
+- [ ] Error messages don't expose internals
+
+### 7. Cross-Site Scripting (XSS)
+- [ ] All output properly escaped for context
+- [ ] Content Security Policy headers set
+- [ ] User input never rendered as HTML
+
+### 8. Insecure Deserialization
+- [ ] Untrusted data never deserialized
+- [ ] Input validation before deserialization
+
+### 9. Using Components with Known Vulnerabilities
+- [ ] Dependencies regularly updated
+- [ ] Security advisories monitored
+- [ ] Unused dependencies removed
+
+### 10. Insufficient Logging & Monitoring
+- [ ] Security events logged
+- [ ] Logs protected from tampering
+- [ ] Alerting configured for anomalies
+
+---
+
+## Input Validation
+
+- [ ] All user input validated against expected format
+- [ ] Input length limits enforced
+- [ ] Special characters properly handled
+- [ ] File uploads validated (type, size, content)
+
+---
+
+## Output Encoding
+
+Context-aware escaping:
+- [ ] HTML content properly escaped
+- [ ] JavaScript strings properly escaped
+- [ ] URL parameters properly encoded
+- [ ] SQL queries use parameterization
+
+---
+
+## Authentication & Authorization
+
+- [ ] Session management secure
+- [ ] CSRF protection implemented
+- [ ] Rate limiting on auth endpoints
+- [ ] Failed login attempts logged
+
+---
+
+## Auto-Reject Patterns
+
+**These patterns will fail code review:**
+
+```
+// NEVER do this in ANY language
+query = "SELECT * FROM table WHERE id = " + user_input    // SQL injection
+print(request.params['name'])                              // XSS
+eval(user_code)                                           // Remote code execution
+include(user_path + "/config")                            // File inclusion
+```
+
+---
+
+## Before Committing
+
+Final checklist:
+
+- [ ] All inputs validated and sanitized
+- [ ] All outputs properly escaped
+- [ ] Authentication/authorization verified
+- [ ] No credentials or secrets in code
+- [ ] Tests pass: `{{TEST_COMMAND}}`
+- [ ] Lint passes: `{{LINT_COMMAND}}`
+
+---
+
+## Additional Resources
+
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+- [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/)
+
+---
+
+**When in doubt, ask for review. Security is not optional.**

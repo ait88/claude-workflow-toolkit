@@ -9,8 +9,14 @@ project:
 
 commands:
   test: "./tests/run-all.sh"
+  test_unit: "./tests/run-unit.sh"
+  test_integration: "./tests/run-integration.sh"
   lint: "shellcheck **/*.sh"
   format: "shfmt -w -i 4 **/*.sh"
+
+output:
+  security:
+    - SECURITY-CHECKLIST-bash.md
 
 conventions:
   file_encoding: "UTF-8 (ASCII preferred)"

@@ -48,7 +48,11 @@ Each template uses `{{VARIABLE}}` placeholders. Common variables:
 | `{{PHASE_COUNT}}` | Number of phases (0-indexed) | `6` |
 | `{{SKILLS_DIR}}` | Where skills live | `.claude/skills` |
 | `{{CODEX_SKILLS_DIR}}` | Where Codex reads the mirrored skills | `.codex/skills` |
+| `{{COMMANDS_DIR}}` | Command documentation directory | `.claude/commands` |
 | `{{DOCS_DIR}}` | Documentation directory | `docs` |
+| `{{CODEX_BOT_USER}}` | Codex review bot username | `chatgpt-codex-connector[bot]` |
+| `{{TEST_UNIT_COMMAND}}` | Unit test command | `npm run test:unit` |
+| `{{TEST_INTEGRATION_COMMAND}}` | Integration test command | `npm run test:integration` |
 
 Use `{{SKILLS_DIR}}` as the canonical location (default `.claude/skills`) and keep `{{CODEX_SKILLS_DIR}}` as a symlink or copy pointing at the same files for Codex agents.
 
@@ -74,6 +78,20 @@ After applying:
 
 ### Skills Templates
 
+#### `check-reviews.sh.template` (NEW)
+Detects PRs with unaddressed review feedback - **run BEFORE claiming new issues**.
+- Lists open PRs with reviews
+- Shows Codex review comments with priority levels (P1/P2/P3)
+- Provides guidance on next steps
+- Enforces review-first workflow
+
+#### `address-review.sh.template` (NEW)
+Checks out a PR branch and displays all review feedback for addressing.
+- Fetches PR details and checks out branch
+- Displays Codex review suggestions with file locations
+- Shows human review comments by file
+- Provides commit/push workflow
+
 #### `claim-issue.sh.template`
 Atomically claims a GitHub issue and creates a feature branch.
 - Removes `agent-ready` label
@@ -93,6 +111,34 @@ Creates PR and updates labels atomically.
 - Pushes current branch
 - Creates PR with "Closes #X"
 - Removes `in-progress`, adds `needs-review`
+
+### Command Documentation Templates
+
+Located in `templates/.claude/commands/`:
+
+| Template | Purpose |
+|----------|---------|
+| `check-reviews.md.template` | Documentation for check-reviews skill |
+| `address-review.md.template` | Documentation for address-review skill |
+| `claim-issue.md.template` | Documentation for claim-issue skill |
+| `check-workflow.md.template` | Documentation for check-workflow skill |
+| `submit-pr.md.template` | Documentation for submit-pr skill |
+
+These provide discoverability for agents browsing the `.claude/` directory.
+
+### Security Checklist Templates
+
+Located in `templates/.claude/`:
+
+| Template | Best For |
+|----------|----------|
+| `SECURITY-CHECKLIST.md.template` | Generic (OWASP Top 10 focused) |
+| `SECURITY-CHECKLIST-php.md.template` | PHP/WordPress/WooCommerce |
+| `SECURITY-CHECKLIST-node.md.template` | Node.js/Express/npm |
+| `SECURITY-CHECKLIST-python.md.template` | Python/Django/Flask |
+| `SECURITY-CHECKLIST-bash.md.template` | Bash/Shell scripts |
+
+Choose the checklist matching your tech stack. Include in `.claude/` for agent reference.
 
 ### Documentation Templates
 
@@ -151,10 +197,19 @@ After applying, the target project will have:
 target-project/
 ├── .claude/
 │   ├── skills/              # Canonical skills for both agents
+│   │   ├── check-reviews    # Detect unaddressed reviews (run first!)
+│   │   ├── address-review   # Address review feedback
 │   │   ├── claim-issue      # Claim issue + create branch
 │   │   ├── check-workflow   # Validate workflow state
 │   │   ├── submit-pr        # Create PR + update labels
 │   │   └── README.md        # Skills documentation
+│   ├── commands/            # Command documentation
+│   │   ├── check-reviews.md
+│   │   ├── address-review.md
+│   │   ├── claim-issue.md
+│   │   ├── check-workflow.md
+│   │   └── submit-pr.md
+│   ├── SECURITY-CHECKLIST.md  # Tech-specific security guide
 │   └── settings.local.json  # Pre-configured Claude Code permissions
 ├── {{CODEX_SKILLS_DIR}} -> {{SKILLS_DIR}}  # Codex mirror of the skills
 └── {{DOCS_DIR}}/

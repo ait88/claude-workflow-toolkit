@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Skill: /check-reviews
+# Description: Find PRs with unaddressed review feedback (Codex and human reviews)
+# Priority: Run BEFORE looking for new issues
+# Usage: /check-reviews
+
+set -euo pipefail
+
+echo "Checking for PRs needing review response..."
+echo ""
+
+# Get repository info dynamically
+REPO_INFO=$(gh repo view --json owner,name)
+OWNER=$(echo "$REPO_INFO" | jq -r '.owner.login')
+REPO=$(echo "$REPO_INFO" | jq -r '.name')
+
+# Bot user for filtering Codex reviews
+CODEX_BOT="{{CODEX_BOT_USER}}"
+
+# Get open PRs with reviews
+PRS_WITH_REVIEWS=$(gh pr list --state open --json number,title,author,reviews,reviewDecision,headRefName --jq '
+  .[] | select(.reviews | length > 0) |
+  {
+    number,
+    title,
+    author: .author.login,
+    branch: .headRefName,
+    decision: .reviewDecision,
+    reviewCount: (.reviews | length)
+  }
+')
+
+if [[ -z "$PRS_WITH_REVIEWS" || "$PRS_WITH_REVIEWS" == "null" ]]; then
+    echo "No PRs with pending reviews found."
+    echo ""
+    echo "You can proceed with new issues:"
+    echo "  gh issue list --label \"agent-ready\" --limit 5"
+    exit 0
+fi
+
+echo "PRs with reviews:"
+echo "$PRS_WITH_REVIEWS" | jq -r '"  #\(.number): \(.title) [\(.decision // "PENDING")] (\(.reviewCount) review(s))"'
+
+echo ""
+echo "Checking for Codex Review suggestions..."
+echo ""
+
+FOUND_CODEX=0
+
+for PR in $(gh pr list --state open --json number --jq '.[].number'); do
+    CODEX_COMMENTS=$(gh api "repos/$OWNER/$REPO/pulls/$PR/comments" --jq "
+      [.[] | select(.user.login == \"$CODEX_BOT\")] | length
+    " 2>/dev/null || echo "0")
+
+    if [[ "$CODEX_COMMENTS" -gt 0 ]]; then
+        FOUND_CODEX=1
+
+        # Get priority breakdown
+        P1_COUNT=$(gh api "repos/$OWNER/$REPO/pulls/$PR/comments" --jq "
+          [.[] | select(.user.login == \"$CODEX_BOT\" and (.body | contains(\"P1\")))] | length
+        " 2>/dev/null || echo "0")
+
+        P2_COUNT=$(gh api "repos/$OWNER/$REPO/pulls/$PR/comments" --jq "
+          [.[] | select(.user.login == \"$CODEX_BOT\" and (.body | contains(\"P2\")))] | length
+        " 2>/dev/null || echo "0")
+
+        P3_COUNT=$(gh api "repos/$OWNER/$REPO/pulls/$PR/comments" --jq "
+          [.[] | select(.user.login == \"$CODEX_BOT\" and (.body | contains(\"P3\")))] | length
+        " 2>/dev/null || echo "0")
+
+        echo "  PR #$PR has Codex Review suggestions:"
+        [[ "$P1_COUNT" -gt 0 ]] && echo "      P1 (Critical): $P1_COUNT"
+        [[ "$P2_COUNT" -gt 0 ]] && echo "      P2 (Important): $P2_COUNT"
+        [[ "$P3_COUNT" -gt 0 ]] && echo "      P3 (Minor): $P3_COUNT"
+    fi
+done
+
+if [[ "$FOUND_CODEX" -eq 0 ]]; then
+    echo "  No Codex Review suggestions found."
+fi
+
+echo ""
+echo "Next Steps:"
+echo ""
+echo "  Address review feedback with:"
+echo "    /address-review <pr-number>"
+echo ""
+echo "  Or view details:"
+echo "    gh pr view <pr-number>"
+echo ""
+echo "PRIORITY: Address reviews before starting new issues!"

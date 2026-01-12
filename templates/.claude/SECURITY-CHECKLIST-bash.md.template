@@ -1,0 +1,257 @@
+# Bash/Shell Security Checklist
+
+> **Use this checklist before EVERY commit**
+>
+> Security vulnerabilities are unacceptable. When in doubt, ask for review.
+
+---
+
+## Safe Bash Defaults
+
+Always start scripts with:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+```
+
+- [ ] **set -e:** Exit on any error
+- [ ] **set -u:** Error on undefined variables
+- [ ] **set -o pipefail:** Catch errors in pipes
+
+---
+
+## Input Validation
+
+All user input MUST be validated:
+
+- [ ] **Validate arguments:** Check count and format
+- [ ] **Validate file paths:** Prevent traversal
+- [ ] **Validate options:** Use getopts or similar
+- [ ] **Quote everything:** Prevent word splitting
+
+**Example:**
+```bash
+# Good - validate and quote
+if [[ -z "${1:-}" ]]; then
+    echo "Error: filename required" >&2
+    exit 1
+fi
+
+filename="$1"
+
+# Validate it's a simple filename
+if [[ "$filename" == */* || "$filename" == *..* ]]; then
+    echo "Error: invalid filename" >&2
+    exit 1
+fi
+
+# Bad - no validation
+filename=$1
+cat $filename  # Word splitting, path traversal
+```
+
+---
+
+## Quoting Rules
+
+- [ ] **Always double-quote:** Variables and command substitutions
+- [ ] **Use $() not backticks:** Easier to nest and read
+- [ ] **Quote in [[ ]]:** Even though not strictly required
+- [ ] **Use arrays:** For multiple arguments
+
+**Example:**
+```bash
+# Good
+file_path="$HOME/my file.txt"
+if [[ -f "$file_path" ]]; then
+    cat "$file_path"
+fi
+
+# Bad - word splitting
+file_path=$HOME/my file.txt  # Broken
+cat $file_path               # Broken
+```
+
+---
+
+## Command Injection Prevention
+
+- [ ] **Never use eval:** Unless absolutely necessary
+- [ ] **Don't expand user input:** In commands
+- [ ] **Use -- for options:** To stop option parsing
+- [ ] **Prefer printf over echo:** More predictable
+
+**Example:**
+```bash
+# Good - using -- and quoting
+rm -- "$user_file"
+grep -r -- "$pattern" "$directory"
+
+# Bad - command injection possible
+eval "cat $user_input"
+$(cat $user_input)
+```
+
+---
+
+## Path Traversal Prevention
+
+- [ ] **Use realpath:** To resolve paths
+- [ ] **Check path prefix:** Ensure within expected directory
+- [ ] **Reject special patterns:** `..`, leading `/`
+
+**Example:**
+```bash
+# Good - validate path is within expected directory
+base_dir="/app/uploads"
+requested_file="$1"
+
+# Resolve the full path
+full_path="$(realpath -m "$base_dir/$requested_file")"
+
+# Check it's still within base_dir
+if [[ "$full_path" != "$base_dir"/* ]]; then
+    echo "Error: path traversal detected" >&2
+    exit 1
+fi
+
+# Bad - no validation
+cat "/app/uploads/$1"  # Path traversal via ../
+```
+
+---
+
+## Temporary Files
+
+- [ ] **Use mktemp:** For temporary files/directories
+- [ ] **Set trap:** To clean up on exit
+- [ ] **Use restrictive permissions:** 600 for files
+
+**Example:**
+```bash
+# Good - secure temporary file handling
+tmpfile="$(mktemp)"
+trap 'rm -f "$tmpfile"' EXIT
+
+chmod 600 "$tmpfile"
+echo "sensitive data" > "$tmpfile"
+
+# Bad - predictable temp file
+echo "data" > /tmp/myapp.tmp  # Race condition, symlink attack
+```
+
+---
+
+## Credential Handling
+
+- [ ] **Never hardcode:** Credentials in scripts
+- [ ] **Use environment variables:** For secrets
+- [ ] **Don't log secrets:** Even masked
+- [ ] **Use secret managers:** In production
+
+**Example:**
+```bash
+# Good - environment variable
+api_key="${API_KEY:?Error: API_KEY not set}"
+
+# Bad - hardcoded
+api_key="sk-1234567890"
+echo "Using key: $api_key"  # Logged!
+```
+
+---
+
+## File Permissions
+
+- [ ] **Set umask:** `umask 077` for sensitive operations
+- [ ] **Check permissions:** Before reading sensitive files
+- [ ] **Use explicit modes:** With chmod
+
+**Example:**
+```bash
+# Good - restrictive permissions
+umask 077
+config_file="/etc/myapp/config"
+
+if [[ "$(stat -c %a "$config_file")" != "600" ]]; then
+    echo "Error: config file has wrong permissions" >&2
+    exit 1
+fi
+```
+
+---
+
+## Error Handling
+
+- [ ] **Check exit codes:** Explicitly when needed
+- [ ] **Use || for fallbacks:** Handle expected failures
+- [ ] **Redirect stderr:** To appropriate places
+- [ ] **Never expose internals:** In error messages
+
+**Example:**
+```bash
+# Good - proper error handling
+if ! output="$(some_command 2>&1)"; then
+    echo "Error: operation failed" >&2
+    exit 1
+fi
+
+# Bad - no error handling
+output=$(some_command)  # Might fail silently with set +e
+```
+
+---
+
+## ShellCheck
+
+- [ ] **Run shellcheck:** On all scripts
+- [ ] **Fix all warnings:** They often indicate security issues
+- [ ] **Use CI/CD:** Automate shellcheck
+
+```bash
+# Run shellcheck
+shellcheck myscript.sh
+```
+
+---
+
+## Auto-Reject Patterns
+
+**These patterns will fail code review:**
+
+```bash
+# NEVER do this
+eval "$user_input"              # Command injection
+$($user_input)                  # Command injection
+cat $unquoted_var              # Word splitting
+echo $unquoted_var             # Word splitting
+password="hardcoded123"        # Hardcoded credential
+curl | bash                    # Unsigned code execution
+```
+
+---
+
+## Before Committing
+
+Final checklist:
+
+- [ ] Script starts with `set -euo pipefail`
+- [ ] All variables quoted
+- [ ] All inputs validated
+- [ ] No hardcoded credentials
+- [ ] Temporary files use mktemp with trap
+- [ ] ShellCheck passes: `shellcheck script.sh`
+- [ ] Tests pass: `{{TEST_COMMAND}}`
+
+---
+
+## Additional Resources
+
+- [ShellCheck](https://www.shellcheck.net/)
+- [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html)
+- [Bash Pitfalls](https://mywiki.wooledge.org/BashPitfalls)
+
+---
+
+**When in doubt, ask for review. Security is not optional.**

@@ -1,0 +1,267 @@
+# Python Security Checklist
+
+> **Use this checklist before EVERY commit**
+>
+> Security vulnerabilities are unacceptable. When in doubt, ask for review.
+
+---
+
+## Input Validation
+
+All user input MUST be validated before use:
+
+- [ ] **Request body:** Validate structure and types
+- [ ] **Query parameters:** Validate against expected format
+- [ ] **Path parameters:** Validate format and existence
+- [ ] **File uploads:** Validate type, size, and content
+
+**Recommended libraries:**
+- `pydantic` for data validation
+- `marshmallow` for serialization/validation
+- `cerberus` for schema validation
+
+**Example:**
+```python
+# Good - using pydantic
+from pydantic import BaseModel, EmailStr
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    name: str
+    age: int
+
+user = UserCreate(**request.json)  # Validates automatically
+
+# Bad - no validation
+data = request.json
+email = data['email']  # No validation
+```
+
+---
+
+## Output Encoding
+
+All output MUST be escaped for context:
+
+### HTML Context (Jinja2/Django)
+- [ ] **Auto-escaping enabled:** Default in most frameworks
+- [ ] **Mark safe carefully:** Only for trusted content
+- [ ] **Use |e filter:** When unsure
+
+### JSON Context
+- [ ] **Use json.dumps():** Never build JSON manually
+- [ ] **Set Content-Type:** `application/json`
+
+### SQL Context
+- [ ] **Use parameterized queries:** Never string formatting
+- [ ] **Use ORM:** SQLAlchemy, Django ORM
+
+**Example:**
+```python
+# Good - Jinja2 auto-escapes
+{{ user.name }}
+
+# Bad - marking untrusted content as safe
+{{ user.name | safe }}  # Only if user.name is trusted
+```
+
+---
+
+## Authentication & Authorization
+
+### Session Management
+- [ ] **Use framework sessions:** Flask-Login, Django auth
+- [ ] **Secure cookie settings:** httponly, secure, samesite
+- [ ] **Regenerate session:** After login/logout
+- [ ] **Set appropriate expiry:** Don't keep sessions forever
+
+### Password Handling
+- [ ] **Use bcrypt or argon2:** Never SHA/MD5 for passwords
+- [ ] **Use library functions:** `werkzeug.security`, `passlib`
+- [ ] **Never log passwords:** Even hashed ones
+
+### Authorization
+- [ ] **Check on every request:** Decorators/middleware
+- [ ] **Validate ownership:** Users can only access their data
+- [ ] **Principle of least privilege:** Minimal permissions
+
+**Example:**
+```python
+# Good - using werkzeug
+from werkzeug.security import generate_password_hash, check_password_hash
+
+hashed = generate_password_hash(password)
+is_valid = check_password_hash(hashed, password)
+
+# Bad - using MD5/SHA
+import hashlib
+hashed = hashlib.md5(password.encode()).hexdigest()  # Weak!
+```
+
+---
+
+## SQL Injection Prevention
+
+### SQLAlchemy
+- [ ] **Use ORM methods:** query(), filter(), etc.
+- [ ] **Parameterized raw SQL:** Use `text()` with bind params
+- [ ] **Never format strings:** Into queries
+
+### Django ORM
+- [ ] **Use ORM methods:** filter(), get(), etc.
+- [ ] **Use params for raw():** Never string formatting
+
+**Example:**
+```python
+# Good - SQLAlchemy parameterized
+from sqlalchemy import text
+result = db.execute(text("SELECT * FROM users WHERE email = :email"), {"email": email})
+
+# Good - Django ORM
+user = User.objects.filter(email=email).first()
+
+# Bad - string formatting
+query = f"SELECT * FROM users WHERE email = '{email}'"  # SQL injection
+```
+
+---
+
+## Command Injection Prevention
+
+- [ ] **Avoid subprocess with shell=True:** Use list of arguments
+- [ ] **Use shlex.quote():** If shell=True is unavoidable
+- [ ] **Validate input strictly:** Whitelist allowed values
+
+**Example:**
+```python
+# Good - using list of arguments
+import subprocess
+subprocess.run(['ls', '-la', directory], check=True)
+
+# Bad - shell=True with user input
+subprocess.run(f'ls -la {directory}', shell=True)  # Command injection
+```
+
+---
+
+## Path Traversal Prevention
+
+- [ ] **Use pathlib:** For path manipulation
+- [ ] **Validate paths:** Use `.resolve()` and check prefix
+- [ ] **Never join user input:** Directly with paths
+
+**Example:**
+```python
+# Good - validate resolved path
+from pathlib import Path
+
+base_dir = Path('/app/uploads').resolve()
+user_path = (base_dir / filename).resolve()
+
+if not str(user_path).startswith(str(base_dir)):
+    raise ValueError('Invalid path')
+
+# Bad - no validation
+file_path = f'/app/uploads/{filename}'  # Path traversal
+```
+
+---
+
+## Dependency Security
+
+### pip Security
+- [ ] **Use pip-audit:** `pip-audit` before release
+- [ ] **Pin versions:** In requirements.txt
+- [ ] **Use lockfile:** pip-tools, poetry.lock
+- [ ] **Review new dependencies:** Check security, maintenance
+
+### Virtual Environments
+- [ ] **Always use venv:** Isolate dependencies
+- [ ] **Don't install globally:** Except for tools
+
+---
+
+## Environment & Secrets
+
+### Environment Variables
+- [ ] **Never commit secrets:** Use `.env` files (gitignored)
+- [ ] **Use python-dotenv:** For local development
+- [ ] **Use secret manager:** In production
+
+### Sensitive Data
+- [ ] **Never log secrets:** Redact in logs
+- [ ] **Never expose in errors:** Generic error messages
+- [ ] **Encrypt at rest:** Sensitive database fields
+
+**Example:**
+```python
+# Good - using environment variables
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+database_url = os.environ['DATABASE_URL']
+
+# Bad - hardcoded secrets
+database_url = 'postgresql://user:password@localhost/db'
+```
+
+---
+
+## Pickle/Deserialization
+
+- [ ] **Never unpickle untrusted data:** Use JSON instead
+- [ ] **Validate YAML carefully:** Use `yaml.safe_load()`
+- [ ] **Avoid eval():** On any user input
+
+**Example:**
+```python
+# Good - safe YAML loading
+import yaml
+data = yaml.safe_load(user_input)
+
+# Bad - unsafe loading
+data = yaml.load(user_input)  # Allows code execution
+data = pickle.loads(user_input)  # Remote code execution
+```
+
+---
+
+## Auto-Reject Patterns
+
+**These patterns will fail code review:**
+
+```python
+# NEVER do this
+eval(user_input)                     # Code injection
+exec(user_input)                     # Code injection
+pickle.loads(user_input)             # Deserialization attack
+os.system(user_input)                # Command injection
+subprocess.run(user_input, shell=True)  # Command injection
+f"SELECT * FROM users WHERE id = {user_id}"  # SQL injection
+```
+
+---
+
+## Before Committing
+
+Final checklist:
+
+- [ ] All inputs validated
+- [ ] All outputs properly escaped
+- [ ] Authentication/authorization verified
+- [ ] No credentials in code
+- [ ] pip-audit clean
+- [ ] Tests pass: `{{TEST_COMMAND}}`
+- [ ] Lint passes: `{{LINT_COMMAND}}`
+
+---
+
+## Additional Resources
+
+- [OWASP Python Security](https://cheatsheetseries.owasp.org/cheatsheets/Python_Security_Cheat_Sheet.html)
+- [Bandit - Python Security Linter](https://bandit.readthedocs.io/)
+
+---
+
+**When in doubt, ask for review. Security is not optional.**

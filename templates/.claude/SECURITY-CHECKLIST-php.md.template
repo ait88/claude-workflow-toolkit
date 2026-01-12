@@ -1,0 +1,201 @@
+# PHP/WordPress Security Checklist
+
+> **Use this checklist before EVERY commit**
+>
+> Security vulnerabilities are unacceptable. When in doubt, ask for review.
+
+---
+
+## Input Sanitization
+
+All user input MUST be sanitized before use:
+
+- [ ] **Text fields:** `sanitize_text_field($input)`
+- [ ] **Textareas:** `sanitize_textarea_field($input)`
+- [ ] **Email addresses:** `sanitize_email($input)`
+- [ ] **URLs:** `esc_url_raw($input)` for storage, `esc_url($input)` for output
+- [ ] **Positive integers:** `absint($input)` - negative becomes 0
+- [ ] **Any integers:** `intval($input)`
+- [ ] **Array keys:** `sanitize_key($input)`
+- [ ] **File names:** `sanitize_file_name($input)`
+
+**Never trust:**
+- `$_GET`, `$_POST`, `$_REQUEST` directly
+- User-uploaded file names
+- Data from external APIs
+
+---
+
+## Output Escaping
+
+All output MUST be escaped for context:
+
+### HTML Context
+- [ ] **HTML content:** `esc_html($output)`
+- [ ] **HTML attributes:** `esc_attr($output)`
+- [ ] **Textareas:** `esc_textarea($output)`
+
+### URL Context
+- [ ] **URLs in href/src:** `esc_url($output)`
+
+### JavaScript Context
+- [ ] **Data in script:** `wp_json_encode($data)` + proper escaping
+- [ ] **Inline event handlers:** Avoid entirely, use proper event binding
+
+### SQL Context
+- [ ] **All queries:** `$wpdb->prepare()` with placeholders
+- [ ] **Dynamic table/column names:** Whitelist validation only
+
+**Example:**
+```php
+// Good
+echo '<a href="' . esc_url($url) . '">' . esc_html($text) . '</a>';
+
+// Bad - XSS vulnerability
+echo '<a href="' . $url . '">' . $text . '</a>';
+```
+
+---
+
+## Authentication & Authorization
+
+### Nonce Verification
+- [ ] **All form submissions:** Include `wp_nonce_field('action_name', 'nonce_field_name')`
+- [ ] **All form handlers:** Verify with `wp_verify_nonce($_POST['nonce_field_name'], 'action_name')`
+- [ ] **AJAX requests:** Use `check_ajax_referer('action_name')`
+
+### Capability Checks
+- [ ] **Admin actions:** `current_user_can('manage_woocommerce')` or appropriate cap
+- [ ] **User-specific actions:** `current_user_can('edit_post', $post_id)` or similar
+- [ ] **Public endpoints:** Still validate/sanitize even if no auth required
+
+**Example:**
+```php
+// Form generation
+wp_nonce_field('{{PROJECT_NAME}}_action', '{{PROJECT_NAME}}_nonce');
+
+// Form handler
+if (!wp_verify_nonce($_POST['{{PROJECT_NAME}}_nonce'], '{{PROJECT_NAME}}_action')) {
+    wp_die('Security check failed');
+}
+
+if (!current_user_can('manage_options')) {
+    wp_die('Unauthorized');
+}
+```
+
+---
+
+## SQL Injection Prevention
+
+### WordPress Database API
+- [ ] **Use $wpdb->prepare():** ALL dynamic queries must use prepared statements
+- [ ] **Table names:** Use `$wpdb->prefix . 'table_name'` or whitelist validation
+- [ ] **Never concatenate:** Don't build SQL strings with variables
+
+**Example:**
+```php
+// Good
+$results = $wpdb->get_results($wpdb->prepare(
+    "SELECT * FROM {$wpdb->prefix}posts WHERE post_title = %s AND post_status = %s",
+    $title,
+    $status
+));
+
+// Bad - SQL injection vulnerability
+$results = $wpdb->get_results(
+    "SELECT * FROM {$wpdb->prefix}posts WHERE post_title = '$title'"
+);
+```
+
+---
+
+## Internationalization (i18n)
+
+All user-facing strings MUST be translatable:
+
+- [ ] **Simple strings:** `__('Text here', '{{PROJECT_NAME}}')`
+- [ ] **Echo strings:** `_e('Text here', '{{PROJECT_NAME}}')`
+- [ ] **Plural forms:** `_n('singular', 'plural', $count, '{{PROJECT_NAME}}')`
+- [ ] **Context-specific:** `_x('Text', 'context', '{{PROJECT_NAME}}')`
+- [ ] **Escaped output:** `esc_html__('Text', '{{PROJECT_NAME}}')`
+
+**Text domain:** Always use `'{{PROJECT_NAME}}'`
+
+---
+
+## File Operations
+
+### File Uploads
+- [ ] **Validate MIME type:** Use `wp_check_filetype()`
+- [ ] **Check file extension:** Whitelist allowed extensions
+- [ ] **Sanitize filename:** `sanitize_file_name($filename)`
+- [ ] **Move to safe location:** Use `wp_upload_dir()` for upload path
+
+### File Paths
+- [ ] **Use absolute paths:** Never rely on relative paths
+- [ ] **Prevent directory traversal:** Validate paths don't contain `../`
+- [ ] **Use WordPress functions:** `WP_CONTENT_DIR`, `ABSPATH`, etc.
+
+---
+
+## API Security
+
+### External API Calls
+- [ ] **Validate response:** Don't trust API data blindly
+- [ ] **Sanitize before storage:** Treat as user input
+- [ ] **Escape before output:** Treat as untrusted data
+- [ ] **Handle errors gracefully:** Don't expose sensitive error details
+- [ ] **Use HTTPS:** Enforce secure connections
+
+---
+
+## Sensitive Data
+
+### Never Expose
+- [ ] **API tokens/credentials:** Use constants, never output
+- [ ] **Database credentials:** Use WordPress config constants
+- [ ] **Internal paths:** Don't expose `ABSPATH` or server paths
+- [ ] **Error details:** Log full errors, show generic messages to users
+
+---
+
+## Auto-Reject Patterns
+
+**These patterns will fail code review:**
+
+```php
+// NEVER do this
+$query = "SELECT * FROM table WHERE id = " . $_GET['id'];  // SQL injection
+echo $_POST['name'];  // XSS
+eval($code);  // Remote code execution
+include $_GET['page'] . '.php';  // File inclusion
+move_uploaded_file($_FILES['file']['tmp_name'], $_FILES['file']['name']);  // Unsafe upload
+```
+
+---
+
+## Before Committing
+
+Final checklist:
+
+- [ ] All inputs sanitized
+- [ ] All outputs escaped
+- [ ] Nonces used for form submissions
+- [ ] Capabilities checked for protected actions
+- [ ] SQL uses `$wpdb->prepare()`
+- [ ] All strings use i18n functions with `'{{PROJECT_NAME}}'` domain
+- [ ] No credentials or sensitive data exposed
+- [ ] Tests pass: `{{TEST_COMMAND}}`
+- [ ] Code standards pass: `{{LINT_COMMAND}}`
+
+---
+
+## Additional Resources
+
+- [WordPress VIP Code Standards](https://docs.wpvip.com/technical-references/vip-code-standards/)
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+
+---
+
+**When in doubt, ask for review. Security is not optional.**

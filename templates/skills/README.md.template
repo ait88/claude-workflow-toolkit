@@ -2,7 +2,56 @@
 
 Optimized skill commands for Claude Code and Codex agents working on this repository. Skills live in `{{SKILLS_DIR}}` and should be mirrored to `{{CODEX_SKILLS_DIR}}` (symlink recommended) so both agents run the same commands.
 
+## Priority Work Order
+
+**ALWAYS check for reviews before starting new issues:**
+
+```
+PRIORITY 1: /check-reviews         (detect unaddressed feedback)
+PRIORITY 2: /address-review <pr>   (address the feedback)
+PRIORITY 3: /claim-issue <issue>   (only then claim new work)
+```
+
+---
+
 ## Available Skills
+
+### `/check-reviews`
+
+Detects PRs with unaddressed review feedback from Codex and human reviewers.
+
+**Usage:**
+```bash
+/check-reviews
+```
+
+**What it does:**
+1. Lists open PRs with reviews
+2. Shows review decision status
+3. Checks for Codex review comments with priority levels (P1/P2/P3)
+4. Provides guidance on next steps
+
+**Run this BEFORE claiming new issues!**
+
+---
+
+### `/address-review <pr-number>`
+
+Checks out a PR branch and displays all review feedback for addressing.
+
+**Usage:**
+```bash
+/address-review 42
+```
+
+**What it does:**
+1. Fetches PR details and checks out the branch
+2. Displays Codex review suggestions with file locations
+3. Shows human review comments by file
+4. Lists general PR-level comments
+5. Provides commit/push workflow
+
+---
 
 ### `/claim-issue <issue-number>`
 
@@ -59,11 +108,13 @@ Creates PR and updates labels atomically.
 
 | Operation | Without Skills | With Skills | Reduction |
 |-----------|---------------|-------------|-----------|
+| Check reviews | 5+ API calls | 2-3 calls | 50% |
+| Address review | 3-4 API calls | 2 calls | 50% |
 | Claim issue | 3-4 API calls | 1 call | 75% |
 | Check workflow | 4-5 API calls | 1 call | 80% |
 | Submit PR | 2-3 API calls | 1 call | 67% |
 
-**Total: 70-80% fewer GitHub API calls**
+**Total: 60-80% fewer GitHub API calls per workflow cycle**
 
 ---
 
@@ -78,11 +129,13 @@ Creates PR and updates labels atomically.
 ## Workflow
 
 ```
-1. Find issue:     gh issue list --label "agent-ready"
-2. Claim issue:    /claim-issue <number>
-3. Implement:      Write code, tests, docs
-4. Validate:       /check-workflow
-5. Submit:         /submit-pr
+1. Check reviews:  /check-reviews
+2. Address any:    /address-review <pr-number>
+3. Find issue:     gh issue list --label "agent-ready"
+4. Claim issue:    /claim-issue <number>
+5. Implement:      Write code, tests, docs
+6. Validate:       /check-workflow
+7. Submit:         /submit-pr
 ```
 
 ---

@@ -9,10 +9,16 @@ project:
 
 commands:
   test: "npm test"
+  test_unit: "npm run test:unit"
+  test_integration: "npm run test:integration"
   lint: "npm run lint"
   format: "npm run format"
   build: "npm run build"
   dev: "npm run dev"
+
+output:
+  security:
+    - SECURITY-CHECKLIST-node.md
 
 conventions:
   file_encoding: "UTF-8"
