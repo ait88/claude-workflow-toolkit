@@ -628,6 +628,7 @@ _worker_loop() {
     echo "Issues processed: $issues_completed"
     echo ""
     echo "Review history: $HISTORY_FILE"
+    return 0
 }
 
 # ============================================================================
@@ -662,3 +663,4 @@ _init_worker_state
 
 # Run the loop
 _worker_loop
+exit 0
