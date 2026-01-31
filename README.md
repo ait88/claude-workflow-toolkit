@@ -31,7 +31,7 @@ If you're a Claude Code or Codex agent asked to apply this toolkit:
 
 ### For Humans
 
-1. Clone this repo alongside your project:
+1. Clone this repo:
    ```bash
    git clone https://github.com/ait88/claude-workflow-toolkit.git ~/claude-workflow-toolkit
    ```
@@ -39,13 +39,66 @@ If you're a Claude Code or Codex agent asked to apply this toolkit:
 2. Ask your Claude Code or Codex agent:
    ```
    Apply the workflow toolkit from ~/claude-workflow-toolkit to this project.
+   Use workspace mode with ~/workspaces/myproject1 as the workspace.
    Read SKILL.md in the toolkit for instructions.
    ```
 
-3. Review and commit the generated files
-4. Optionally delete the toolkit clone (your project is now self-contained)
+3. Review the generated workspace
+4. Start using skills from the workspace directory:
+   ```bash
+   cd ~/workspaces/myproject1
+   /check-reviews
+   ```
 
-## What Gets Generated
+## Installation Modes
+
+The toolkit supports two installation modes:
+
+| Mode | Best For | Project Impact |
+|------|----------|----------------|
+| **Workspace** (Recommended) | New projects, clean separation | Target project unchanged |
+| **Embedded** (Legacy) | Simple setups, single-project use | Adds files to target project |
+
+### Workspace Mode (Recommended)
+
+Keeps your target project clean by placing all toolkit infrastructure in a separate workspace directory:
+
+```
+~/workspaces/myproject1/             # Workspace (toolkit infrastructure)
+├── .claude/
+│   ├── skills/                      # Skills operate on target project
+│   ├── commands/                    # Command documentation
+│   ├── workspace-config             # Points to target project
+│   └── toolkit-version              # Tracks applied version
+├── .codex/skills -> .claude/skills  # Codex mirror
+└── WORKSPACE.md                     # Explains relationship
+
+~/myproject1/                        # Target project (unchanged/clean)
+├── <your code>
+└── .git/
+```
+
+**Benefits:**
+- Target project stays free of toolkit scaffolding
+- Easy to use different workspaces for different projects
+- Skills support `--project` and `--repo` flags for ad-hoc usage
+
+**Usage from workspace:**
+```bash
+cd ~/workspaces/myproject1
+/check-reviews
+/claim-issue 42
+```
+
+**Usage from anywhere (with flags):**
+```bash
+/check-reviews --project ~/myproject1
+/claim-issue --repo owner/myproject1 42
+```
+
+### Embedded Mode (Legacy)
+
+For simpler setups, apply the toolkit directly inside the target project:
 
 ```
 your-project/
@@ -71,6 +124,16 @@ your-project/
     ├── QUICK-REFERENCE.md   # Fast navigation for agents
     ├── FAQ-AGENTS.md        # Pre-answered questions
     └── CODEBASE-MAP.md      # Annotated directory structure
+```
+
+### Migrating to Workspace Mode
+
+Convert an existing embedded installation to workspace mode:
+
+```bash
+~/claude-workflow-toolkit/scripts/migrate-to-workspace.sh \
+    ~/myproject1 \
+    ~/workspaces/myproject1
 ```
 
 ### Dual-Agent Skills (Claude + Codex)
@@ -132,6 +195,17 @@ All templates use `{{VARIABLE}}` syntax for placeholders:
 | `{{DOCS_DIR}}` | Docs directory | `docs` |
 | `{{CODEX_BOT_USER}}` | Codex review bot username | `chatgpt-codex-connector[bot]` |
 
+### Workspace Mode Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{TARGET_PROJECT_PATH}}` | Absolute path to target project | `/home/user/myproject1` |
+| `{{WORKSPACE_NAME}}` | Name of workspace directory | `myproject1` |
+| `{{WORKSPACE_PATH}}` | Full path to workspace | `/home/user/workspaces/myproject1` |
+| `{{INSTALLATION_MODE}}` | Installation mode | `workspace` or `embedded` |
+| `{{TOOLKIT_SOURCE}}` | Path to toolkit source | `~/claude-workflow-toolkit` |
+| `{{TOOLKIT_COMMIT}}` | Git commit hash when applied | `1425680...` |
+
 Keep `{{SKILLS_DIR}}` as the canonical skill location and point `{{CODEX_SKILLS_DIR}}` at the same files (symlink recommended) so Claude and Codex use identical commands.
 
 ## Repository Structure
@@ -143,6 +217,8 @@ claude-workflow-toolkit/
 ├── LICENSE                     # MIT License
 │
 ├── templates/
+│   ├── WORKSPACE.md.template   # Workspace documentation (workspace mode)
+│   │
 │   ├── skills/                 # Workflow skill templates
 │   │   ├── check-reviews.sh.template     # Review detection
 │   │   ├── address-review.sh.template    # Review addressing
@@ -163,7 +239,9 @@ claude-workflow-toolkit/
 │   │   ├── SECURITY-CHECKLIST-node.md.template  # Node.js
 │   │   ├── SECURITY-CHECKLIST-python.md.template # Python
 │   │   ├── SECURITY-CHECKLIST-bash.md.template  # Bash
-│   │   └── settings.local.json.template
+│   │   ├── settings.local.json.template
+│   │   ├── toolkit-version.template     # Version tracking (workspace mode)
+│   │   └── workspace-config.template    # Workspace configuration
 │   │
 │   └── docs/                   # Documentation templates
 │       ├── QUICK-REFERENCE.md.template
@@ -181,8 +259,9 @@ claude-workflow-toolkit/
 │   └── applied/               # Example generated output
 │
 └── scripts/
-    ├── setup-labels.sh        # Create required GitHub labels
-    └── validate-templates.sh  # Template syntax validator
+    ├── setup-labels.sh           # Create required GitHub labels
+    ├── validate-templates.sh     # Template syntax validator
+    └── migrate-to-workspace.sh   # Convert embedded to workspace mode
 ```
 
 ## Setup Scripts
@@ -197,6 +276,20 @@ Creates the required GitHub labels in your repository:
 ```bash
 ./scripts/setup-labels.sh
 ```
+
+### `scripts/migrate-to-workspace.sh`
+
+Converts an embedded installation to workspace mode:
+
+```bash
+./scripts/migrate-to-workspace.sh ~/myproject1 ~/workspaces/myproject1
+```
+
+The migration script:
+1. Creates the workspace directory structure
+2. Copies skills and commands to the workspace
+3. Generates workspace-config pointing to the target project
+4. Interactively prompts before removing old files from target
 
 ## Why Use This?
 
@@ -238,6 +331,7 @@ git checkout -b 35-feature-name
 - **Atomic operations**: Labels and branches updated together
 - **60-80% fewer API calls**: GraphQL and batching optimizations
 - **Security checklists**: Tech-specific guides for secure coding
+- **Workspace mode**: Keep target projects clean with separate workflow directory
 
 ## Contributing
 
