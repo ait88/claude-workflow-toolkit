@@ -55,6 +55,9 @@ Each template uses `{{VARIABLE}}` placeholders. Common variables:
 | `{{TEST_INTEGRATION_COMMAND}}` | Integration test command | `npm run test:integration` |
 | `{{TOOLKIT_SOURCE}}` | Path to toolkit source | `~/claude-workflow-toolkit` |
 | `{{TOOLKIT_COMMIT}}` | Git commit hash when applied | `a37ae2d...` |
+| `{{WORKER_MAX_RETRIES}}` | Max quality gate retry attempts | `3` |
+| `{{WORKER_MAX_ISSUES}}` | Max issues per worker session | `10` |
+| `{{WORKER_POLL_INTERVAL}}` | Seconds between issue queries | `60` |
 
 Use `{{SKILLS_DIR}}` as the canonical location (default `.claude/skills`) and keep `{{CODEX_SKILLS_DIR}}` as a symlink or copy pointing at the same files for Codex agents.
 
@@ -214,6 +217,15 @@ Creates PR and updates labels atomically.
 - Creates PR with "Closes #X"
 - Removes `in-progress`, adds `needs-review`
 
+#### `worker.sh.template`
+Autonomous development loop - claims issues, implements, tests, submits PRs.
+- Checks for pending reviews first (priority workflow)
+- Resumes in-progress work or claims next `agent-ready` issue
+- Runs quality gates (tests, lint, security)
+- Retries fixes up to `{{WORKER_MAX_RETRIES}}` times
+- Queues decisions for human review when blocked
+- Integrates with `/claim-issue` and `/submit-pr` internally
+
 ### Command Documentation Templates
 
 Located in `templates/.claude/commands/`:
@@ -225,6 +237,7 @@ Located in `templates/.claude/commands/`:
 | `claim-issue.md.template` | Documentation for claim-issue skill |
 | `check-workflow.md.template` | Documentation for check-workflow skill |
 | `submit-pr.md.template` | Documentation for submit-pr skill |
+| `worker.md.template` | Documentation for worker skill |
 
 These provide discoverability for agents browsing the `.claude/` directory.
 
@@ -304,14 +317,19 @@ target-project/
 │   │   ├── claim-issue      # Claim issue + create branch
 │   │   ├── check-workflow   # Validate workflow state
 │   │   ├── submit-pr        # Create PR + update labels
+│   │   ├── worker           # Autonomous development loop
 │   │   └── README.md        # Skills documentation
 │   ├── commands/            # Command documentation
 │   │   ├── check-reviews.md
 │   │   ├── address-review.md
 │   │   ├── claim-issue.md
 │   │   ├── check-workflow.md
-│   │   └── submit-pr.md
+│   │   ├── submit-pr.md
+│   │   └── worker.md
+│   ├── worker/              # Worker state (runtime, not committed)
+│   │   └── .gitkeep
 │   ├── toolkit-version      # Tracks applied toolkit version
+│   ├── WORKER-ROLE.md       # Worker agent role definition
 │   ├── SECURITY-CHECKLIST.md  # Tech-specific security guide
 │   └── settings.local.json  # Pre-configured Claude Code permissions
 ├── {{CODEX_SKILLS_DIR}} -> {{SKILLS_DIR}}  # Codex mirror of the skills

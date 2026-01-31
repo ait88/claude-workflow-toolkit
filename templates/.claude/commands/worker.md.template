@@ -1,0 +1,172 @@
+---
+name: worker
+description: Autonomous development loop - claim issues, implement, test, submit PRs
+version: 1.0.0
+---
+
+# /worker
+
+Autonomous development loop that claims issues, implements solutions, passes quality gates, and submits PRs.
+
+## Usage
+
+```bash
+/worker [options]
+```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--project <path>` | Target project directory |
+| `--repo <owner/name>` | Target GitHub repository |
+| `--max-issues <n>` | Maximum issues to process (default: {{WORKER_MAX_ISSUES}}) |
+| `--once` | Process exactly one issue then exit |
+| `--dry-run` | Show what would happen without making changes |
+
+## What It Does
+
+1. **Checks for pending reviews** - Pauses if PRs have requested changes
+2. **Resumes in-progress work** - Continues any previously claimed issue
+3. **Finds next issue** - Queries for `agent-ready` labeled issues, prioritized by phase
+4. **Claims atomically** - Uses `/claim-issue` to prevent conflicts
+5. **Pauses for implementation** - You implement the solution
+6. **Runs quality gates** - Tests, lint, and security checks
+7. **Retries on failure** - Up to {{WORKER_MAX_RETRIES}} attempts to fix issues
+8. **Submits PR** - Uses `/submit-pr` when gates pass
+9. **Repeats** - Continues until max issues reached or no work available
+
+## Quality Gates
+
+Before submitting, the worker verifies:
+
+| Gate | Command | Behavior |
+|------|---------|----------|
+| Tests | `{{TEST_COMMAND}}` | Must pass |
+| Lint | `{{LINT_COMMAND}}` | Must pass |
+| Security | Built-in checks | Warnings logged |
+
+## Decision Queue
+
+When the worker encounters situations requiring human judgment:
+
+1. Creates entry in `.claude/worker/decision-queue/`
+2. Logs the issue and continues with next available work
+3. Human reviews queue and resolves decisions
+
+View pending decisions:
+```bash
+ls .claude/worker/decision-queue/
+cat .claude/worker/decision-queue/*.json
+```
+
+## State Files
+
+The worker maintains state in `.claude/worker/`:
+
+| File | Purpose |
+|------|---------|
+| `worker.lock` | Prevents multiple workers on same clone |
+| `current-issue` | Issue number being worked |
+| `current-branch` | Branch name for current work |
+| `retry-count` | Quality gate retry attempts |
+| `history.log` | Completed work log |
+| `decision-queue/` | Pending human decisions |
+
+## Examples
+
+```bash
+# Run worker loop (default: up to {{WORKER_MAX_ISSUES}} issues)
+/worker
+
+# Process exactly one issue
+/worker --once
+
+# Preview what would happen
+/worker --dry-run
+
+# From workspace, target specific project
+/worker --project ~/myproject
+
+# With explicit repository
+/worker --repo owner/repo
+```
+
+## Typical Session
+
+```bash
+$ /worker --once
+
+========================================
+Worker Agent Started
+========================================
+Repository:  owner/repo
+Max issues:  1
+Max retries: 3
+
+Step 1: Checking for pending reviews...
+No pending reviews requiring changes
+
+Step 3: Finding next issue...
+Found: #42 - Add user authentication
+
+Step 4: Claiming issue...
+Issue #42 claimed. Implement the solution, then run /worker again.
+
+# ... implement the feature ...
+
+$ /worker
+
+Step 2: Resuming in-progress issue #42...
+Found commits ready for quality gates
+
+Step 5: Running quality gates...
+Tests:    PASS
+Lint:     PASS
+Security: PASS
+
+All quality gates passed
+
+Step 6: Submitting PR...
+
+Issue #42 completed successfully
+```
+
+## Requirements
+
+- `gh` - GitHub CLI, authenticated
+- `jq` - JSON processor
+- `git` - Version control
+
+## Related Skills
+
+| Skill | Relationship |
+|-------|--------------|
+| `/claim-issue` | Called internally for atomic claiming |
+| `/submit-pr` | Called internally for PR creation |
+| `/check-reviews` | Checks review status before claiming |
+| `/address-review` | Address feedback when worker pauses |
+
+## Troubleshooting
+
+### "Another worker is running"
+
+A previous worker may have crashed. Remove the lock file:
+```bash
+rm .claude/worker/worker.lock
+```
+
+### Worker keeps pausing for reviews
+
+Address the pending reviews first:
+```bash
+/check-reviews
+/address-review <pr-number>
+```
+
+### Quality gates keep failing
+
+Check the specific errors and fix manually, or view the decision queue:
+```bash
+cat .claude/worker/decision-queue/*.json
+```

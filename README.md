@@ -109,13 +109,15 @@ your-project/
 │   │   ├── claim-issue      # Claim issue + create branch
 │   │   ├── check-workflow   # Validate workflow state
 │   │   ├── submit-pr        # Create PR + update labels
+│   │   ├── worker           # Autonomous development loop
 │   │   └── README.md
 │   ├── commands/            # Skill documentation for discoverability
 │   │   ├── check-reviews.md
 │   │   ├── address-review.md
 │   │   ├── claim-issue.md
 │   │   ├── check-workflow.md
-│   │   └── submit-pr.md
+│   │   ├── submit-pr.md
+│   │   └── worker.md
 │   ├── SECURITY-CHECKLIST.md  # Tech-specific security guide
 │   └── settings.local.json    # Pre-configured Claude Code permissions
 ├── .codex/
@@ -225,6 +227,7 @@ claude-workflow-toolkit/
 │   │   ├── claim-issue.sh.template       # Issue claiming
 │   │   ├── check-workflow.sh.template    # Workflow validation
 │   │   ├── submit-pr.sh.template         # PR submission
+│   │   ├── worker.sh.template            # Autonomous development loop
 │   │   └── README.md.template
 │   │
 │   ├── .claude/
@@ -233,7 +236,11 @@ claude-workflow-toolkit/
 │   │   │   ├── address-review.md.template
 │   │   │   ├── claim-issue.md.template
 │   │   │   ├── check-workflow.md.template
-│   │   │   └── submit-pr.md.template
+│   │   │   ├── submit-pr.md.template
+│   │   │   └── worker.md.template
+│   │   ├── worker/                          # Worker state directory
+│   │   │   └── .gitkeep
+│   │   ├── WORKER-ROLE.md.template          # Worker agent role definition
 │   │   ├── SECURITY-CHECKLIST.md.template       # Generic
 │   │   ├── SECURITY-CHECKLIST-php.md.template   # PHP/WordPress
 │   │   ├── SECURITY-CHECKLIST-node.md.template  # Node.js

@@ -34,6 +34,12 @@ commands:
   test_integration: ""
   lint: "echo 'No lint command configured'"
 
+# Worker agent configuration
+worker:
+  max_retries: 3        # Max attempts to fix quality gate failures
+  max_issues: 10        # Max issues to process per worker session
+  poll_interval: 60     # Seconds between issue queries when none available
+
 commit:
   types:
     - feat
@@ -55,6 +61,7 @@ output:
     - claim-issue
     - check-workflow
     - submit-pr
+    - worker
     - README.md
   commands:
     - check-reviews
@@ -62,9 +69,12 @@ output:
     - claim-issue
     - check-workflow
     - submit-pr
+    - worker
   docs:
     - QUICK-REFERENCE.md
     - FAQ-AGENTS.md
     - CODEBASE-MAP.md
   security:
     - SECURITY-CHECKLIST.md
+  roles:
+    - WORKER-ROLE.md
