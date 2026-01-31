@@ -1,0 +1,74 @@
+---
+name: sync-skills
+description: Update all workspace skills from toolkit templates
+version: 1.0.0
+---
+
+# /sync-skills
+
+Updates all skills in the current workspace from the toolkit's template files.
+
+## Usage
+
+```bash
+/sync-skills [--dry-run]
+```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Show what would be updated without making changes |
+
+## What It Does
+
+1. Locates the toolkit source (via `TOOLKIT_SOURCE` config or default paths)
+2. Runs `install-skill.sh --all --update` to update all skills
+3. Reports which skills were updated
+
+## When to Use
+
+- After pulling toolkit updates that include template changes
+- When validation shows outdated skills
+- After fixing a bug in a skill template
+
+## Configuration
+
+The skill looks for the toolkit source in this order:
+
+1. `TOOLKIT_SOURCE` variable in `workspace-config`
+2. `~/claude-workflow-toolkit` directory
+3. Parent of the skills directory (for embedded installations)
+
+## Example
+
+```bash
+$ /sync-skills
+
+========================================
+Syncing Skills from Toolkit
+========================================
+Toolkit: /home/user/claude-workflow-toolkit
+Target:  /home/user/workspaces/myproject
+
+Installing skills...
+  Profile: default
+  Target:  /home/user/workspaces/myproject
+
+  ✓ check-reviews
+  ✓ claim-issue
+  ✓ worker
+  ...
+
+Done! 6 skill(s) processed
+
+Skills synchronized!
+```
+
+## Related
+
+| Skill | Relationship |
+|-------|--------------|
+| `/worker` | May show validation warnings if skills outdated |
+| `validate-toolkit.sh` | Checks for outdated skills |
+| `install-skill.sh` | Called internally to install skills |

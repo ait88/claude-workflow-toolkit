@@ -225,11 +225,13 @@ git_with_fallback() {
     fi
 }
 
-# Create and checkout branch
-echo "Creating branch..."
+# Sync with latest main before creating branch
+echo "Syncing with latest {{DEFAULT_BRANCH}}..."
 git_with_fallback fetch origin {{DEFAULT_BRANCH}} || git_with_fallback fetch origin main || true
 _git checkout {{DEFAULT_BRANCH}} 2>/dev/null || _git checkout main
 git_with_fallback pull origin {{DEFAULT_BRANCH}} || git_with_fallback pull origin main || true
+echo ""
+echo "Creating branch..."
 
 if _git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
     echo -e "${YELLOW}Branch ${BRANCH} already exists, checking out...${NC}"

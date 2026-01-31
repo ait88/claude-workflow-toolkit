@@ -62,6 +62,7 @@ output:
     - check-workflow
     - submit-pr
     - worker
+    - sync-skills
     - README.md
   commands:
     - check-reviews
@@ -70,6 +71,7 @@ output:
     - check-workflow
     - submit-pr
     - worker
+    - sync-skills
   docs:
     - QUICK-REFERENCE.md
     - FAQ-AGENTS.md

@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Skill: /sync-skills
+# Description: Update all workspace skills from toolkit templates
+# Usage: /sync-skills [--dry-run]
+
+set -euo pipefail
+
+# ============================================================================
+# WORKSPACE/PROJECT MODE DETECTION
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARGET_PROJECT=""
+MODE=""
+DRY_RUN=false
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run|-n)
+            DRY_RUN=true
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+_load_workspace_config() {
+    local config_file="${SCRIPT_DIR}/../workspace-config"
+    if [[ -f "$config_file" ]]; then
+        # shellcheck source=/dev/null
+        source "$config_file"
+        return 0
+    fi
+    return 1
+}
+
+_detect_mode() {
+    if _load_workspace_config; then
+        MODE="workspace"
+        return
+    fi
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        TARGET_PROJECT="$(pwd)"
+        MODE="in-project"
+        return
+    fi
+    echo "Error: Not in a git repository and no workspace config found."
+    exit 1
+}
+
+_detect_mode
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo ""
+echo "========================================"
+echo -e "${BLUE}Syncing Skills from Toolkit${NC}"
+echo "========================================"
+
+# Find toolkit source
+TOOLKIT_SOURCE="${TOOLKIT_SOURCE:-}"
+
+if [[ -z "$TOOLKIT_SOURCE" ]]; then
+    # Try common locations
+    if [[ -d "$HOME/claude-workflow-toolkit" ]]; then
+        TOOLKIT_SOURCE="$HOME/claude-workflow-toolkit"
+    elif [[ -d "${SCRIPT_DIR}/../../templates" ]]; then
+        TOOLKIT_SOURCE="$(realpath "${SCRIPT_DIR}/../..")"
+    fi
+fi
+
+if [[ -z "$TOOLKIT_SOURCE" ]] || [[ ! -d "$TOOLKIT_SOURCE/scripts" ]]; then
+    echo -e "${YELLOW}Warning: Could not find toolkit source${NC}"
+    echo "Set TOOLKIT_SOURCE in workspace-config or install toolkit to ~/claude-workflow-toolkit"
+    exit 1
+fi
+
+echo -e "Toolkit: ${BLUE}$TOOLKIT_SOURCE${NC}"
+
+# Determine target
+if [[ "$MODE" == "workspace" ]]; then
+    TARGET="${SCRIPT_DIR}/.."
+else
+    TARGET="$TARGET_PROJECT"
+fi
+TARGET="$(realpath "$TARGET")"
+
+echo -e "Target:  ${BLUE}$TARGET${NC}"
+echo ""
+
+# Run install-skill.sh
+INSTALL_SCRIPT="$TOOLKIT_SOURCE/scripts/install-skill.sh"
+
+if [[ ! -x "$INSTALL_SCRIPT" ]]; then
+    echo "Error: install-skill.sh not found or not executable"
+    exit 1
+fi
+
+if $DRY_RUN; then
+    "$INSTALL_SCRIPT" --all --target "$TARGET" --update --dry-run
+else
+    "$INSTALL_SCRIPT" --all --target "$TARGET" --update
+fi
+
+echo ""
+echo -e "${GREEN}Skills synchronized!${NC}"
