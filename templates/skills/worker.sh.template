@@ -127,6 +127,8 @@ POLL_INTERVAL={{WORKER_POLL_INTERVAL}}
 DRY_RUN=false
 
 # Parse worker-specific flags
+RESET_STATE=false
+
 _parse_worker_flags() {
     local args=()
     while [[ $# -gt 0 ]]; do
@@ -143,6 +145,10 @@ _parse_worker_flags() {
                 MAX_ISSUES=1
                 shift
                 ;;
+            --reset)
+                RESET_STATE=true
+                shift
+                ;;
             *)
                 args+=("$1")
                 shift
@@ -150,6 +156,21 @@ _parse_worker_flags() {
         esac
     done
     REMAINING_ARGS=("${args[@]+"${args[@]}"}")
+}
+
+# Reset worker state (clears current issue, decision queue, lock file)
+_reset_worker_state() {
+    echo "Resetting worker state..."
+    rm -f "$LOCK_FILE" "$STATE_FILE" "$BRANCH_FILE" "$RETRY_FILE"
+    rm -f "$DECISION_DIR"/*.json 2>/dev/null || true
+    echo -e "${GREEN}Worker state cleared${NC}"
+    echo ""
+    echo "Cleared:"
+    echo "  - Lock file"
+    echo "  - Current issue tracking"
+    echo "  - Decision queue"
+    echo ""
+    echo "Note: history.log preserved"
 }
 
 # ============================================================================
@@ -516,11 +537,17 @@ _worker_loop() {
             # Claim the issue atomically using existing skill
             echo ""
             echo -e "${BLUE}Step 4:${NC} Claiming issue..."
-            if ! "${SCRIPT_DIR}/claim-issue" "$issue_num"; then
+            local claim_output
+            if ! claim_output=$("${SCRIPT_DIR}/claim-issue" "$issue_num" 2>&1); then
                 echo -e "${RED}Failed to claim issue #$issue_num${NC}"
-                _log_history "FAILED" "$issue_num" "Claim failed"
+                echo "$claim_output"
+                # Extract last line as error summary
+                local error_summary
+                error_summary=$(echo "$claim_output" | grep -i "error\|failed\|not found" | tail -1 | cut -c1-100)
+                _log_history "CLAIM_FAILED" "$issue_num" "${error_summary:-Claim failed}"
                 continue
             fi
+            echo "$claim_output"
 
             local branch
             branch=$(_git branch --show-current 2>/dev/null || echo "")
@@ -569,12 +596,17 @@ _worker_loop() {
         if $DRY_RUN; then
             echo -e "${YELLOW}[DRY RUN]${NC} Would submit PR for issue #$current_issue"
         else
-            if ! "${SCRIPT_DIR}/submit-pr"; then
+            local submit_output
+            if ! submit_output=$("${SCRIPT_DIR}/submit-pr" 2>&1); then
                 echo -e "${RED}Failed to submit PR${NC}"
+                echo "$submit_output"
                 _log_history "FAILED" "$current_issue" "PR submission failed"
+                # Escape quotes in output for JSON and truncate if too long
+                local error_context
+                error_context=$(echo "$submit_output" | tail -10 | sed 's/"/\\"/g' | tr '\n' ' ' | cut -c1-500)
                 _queue_decision "$current_issue" \
                     "PR submission failed" \
-                    "Could not create PR - check git status and try /submit-pr manually" \
+                    "Error: ${error_context}" \
                     '["Retry manually", "Abandon issue"]'
                 _clear_current_issue
                 ((issues_completed++))
@@ -612,6 +644,20 @@ set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
 # Initialize
 _detect_mode
 _get_repo_info
+
+# Handle --reset flag
+if $RESET_STATE; then
+    # Set up paths without acquiring lock
+    WORKER_DIR="${SCRIPT_DIR}/../worker"
+    LOCK_FILE="${WORKER_DIR}/worker.lock"
+    STATE_FILE="${WORKER_DIR}/current-issue"
+    BRANCH_FILE="${WORKER_DIR}/current-branch"
+    RETRY_FILE="${WORKER_DIR}/retry-count"
+    DECISION_DIR="${WORKER_DIR}/decision-queue"
+    _reset_worker_state
+    exit 0
+fi
+
 _init_worker_state
 
 # Run the loop
