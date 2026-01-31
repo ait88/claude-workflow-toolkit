@@ -233,18 +233,27 @@ ${PR_BODY}"
         fi
     fi
 
+    # gh pr create needs to run from within the git repository
+    _gh_pr_create() {
+        if [[ "$MODE" == "in-project" ]]; then
+            gh pr create "$@"
+        else
+            (cd "$TARGET_PROJECT" && gh pr create "$@")
+        fi
+    }
+
     if [[ -z "$TITLE" ]]; then
         # Auto-generate from commits
         if [[ -n "$PR_BODY" ]]; then
-            PR_URL=$(gh pr create --repo "$OWNER/$REPO" --fill --body "$PR_BODY" 2>&1)
+            PR_URL=$(_gh_pr_create --repo "$OWNER/$REPO" --fill --body "$PR_BODY" 2>&1)
         else
-            PR_URL=$(gh pr create --repo "$OWNER/$REPO" --fill 2>&1)
+            PR_URL=$(_gh_pr_create --repo "$OWNER/$REPO" --fill 2>&1)
         fi
     else
         if [[ -n "$PR_BODY" ]]; then
-            PR_URL=$(gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "$PR_BODY" 2>&1)
+            PR_URL=$(_gh_pr_create --repo "$OWNER/$REPO" --title "$TITLE" --body "$PR_BODY" 2>&1)
         else
-            PR_URL=$(gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "" 2>&1)
+            PR_URL=$(_gh_pr_create --repo "$OWNER/$REPO" --title "$TITLE" --body "" 2>&1)
         fi
     fi
 

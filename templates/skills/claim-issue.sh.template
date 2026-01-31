@@ -203,9 +203,16 @@ echo ""
 # Ensure workflow labels exist
 _ensure_workflow_labels
 
-# Update labels (using explicit repo)
+# Update labels atomically (using explicit repo)
+# First add in-progress, then remove agent-ready to avoid orphaned state
 echo "Updating labels..."
-gh issue edit "$ISSUE" --repo "$OWNER/$REPO" --remove-label "agent-ready" --add-label "in-progress"
+if ! gh issue edit "$ISSUE" --repo "$OWNER/$REPO" --add-label "in-progress" 2>/dev/null; then
+    echo -e "${RED}Error: Failed to add 'in-progress' label${NC}"
+    exit 1
+fi
+
+# Now safe to remove agent-ready (issue is already marked in-progress)
+gh issue edit "$ISSUE" --repo "$OWNER/$REPO" --remove-label "agent-ready" 2>/dev/null || true
 
 # Helper function for SSH/HTTPS fallback
 git_with_fallback() {
