@@ -121,6 +121,35 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# ============================================================================
+# LABEL MANAGEMENT
+# ============================================================================
+
+# Ensure a label exists, creating it if necessary
+# Usage: _ensure_label "label-name" "description" "color"
+_ensure_label() {
+    local label="$1"
+    local description="${2:-}"
+    local color="${3:-}"
+
+    # Check if label exists
+    if ! gh label list --repo "$OWNER/$REPO" --json name --jq '.[].name' 2>/dev/null | grep -q "^${label}$"; then
+        echo "Creating missing label: ${label}"
+        local args=(--repo "$OWNER/$REPO" "$label")
+        [[ -n "$description" ]] && args+=(--description "$description")
+        [[ -n "$color" ]] && args+=(--color "$color")
+        gh label create "${args[@]}" 2>/dev/null || true
+    fi
+}
+
+# Ensure all workflow labels exist
+_ensure_workflow_labels() {
+    _ensure_label "agent-ready" "Issue is ready for agent to work on" "aaaaaa"
+    _ensure_label "in-progress" "Issue is being worked on" "fbca04"
+    _ensure_label "needs-review" "PR ready for review" "0e8a16"
+    _ensure_label "blocked" "Blocked by external factor" "b60205"
+}
+
 # Validate arguments
 if [[ $# -lt 1 ]]; then
     echo -e "${RED}Usage: /claim-issue [--project <path>] <issue-number>${NC}"
@@ -171,12 +200,12 @@ echo "Issue: #${ISSUE} - ${TITLE}"
 echo "Branch: ${BRANCH}"
 echo ""
 
+# Ensure workflow labels exist
+_ensure_workflow_labels
+
 # Update labels (using explicit repo)
 echo "Updating labels..."
-gh issue edit "$ISSUE" --repo "$OWNER/$REPO" --remove-label "agent-ready" --add-label "in-progress" 2>/dev/null || {
-    # Label might not exist, try just adding
-    gh issue edit "$ISSUE" --repo "$OWNER/$REPO" --add-label "in-progress"
-}
+gh issue edit "$ISSUE" --repo "$OWNER/$REPO" --remove-label "agent-ready" --add-label "in-progress"
 
 # Helper function for SSH/HTTPS fallback
 git_with_fallback() {
