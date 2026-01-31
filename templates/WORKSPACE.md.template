@@ -1,0 +1,103 @@
+# Workflow Workspace for {{PROJECT_NAME}}
+
+This workspace manages Claude Code and Codex workflows for:
+
+| Setting | Value |
+|---------|-------|
+| **Target Project** | `{{TARGET_PROJECT_PATH}}` |
+| **Repository** | `{{REPO_OWNER}}/{{PROJECT_NAME}}` |
+| **Default Branch** | `{{DEFAULT_BRANCH}}` |
+
+## What is This?
+
+This is a **workflow workspace** - a dedicated directory containing toolkit infrastructure while keeping your target project clean.
+
+```
+{{WORKSPACE_NAME}}/              <- You are here (workspace)
+├── .claude/
+│   ├── skills/                  <- Workflow commands
+│   ├── commands/                <- Command documentation
+│   └── workspace-config         <- Points to target project
+├── .codex/skills -> .claude/skills
+└── WORKSPACE.md
+
+{{TARGET_PROJECT_PATH}}/         <- Your actual project (clean)
+├── <your code>
+└── .git/
+```
+
+## Usage
+
+### From This Workspace
+
+```bash
+cd {{WORKSPACE_PATH}}
+/check-reviews
+/claim-issue 42
+/check-workflow
+/submit-pr
+```
+
+### Using --project Flag (From Anywhere)
+
+```bash
+{{WORKSPACE_PATH}}/.claude/skills/check-reviews
+{{WORKSPACE_PATH}}/.claude/skills/claim-issue --project {{TARGET_PROJECT_PATH}} 42
+```
+
+## Skill Reference
+
+| Priority | Skill | Description |
+|----------|-------|-------------|
+| 1 | `/check-reviews` | Detect unaddressed review feedback |
+| 2 | `/address-review <pr>` | Address review feedback |
+| 3 | `/claim-issue <issue>` | Claim issue and create branch |
+| 4 | `/check-workflow` | Validate workflow state |
+| 5 | `/submit-pr` | Create PR and update labels |
+
+**Workflow Priority:** Always check for reviews before starting new work!
+
+## Configuration
+
+The workspace is configured in `.claude/workspace-config`:
+
+```bash
+TARGET_PROJECT_PATH="{{TARGET_PROJECT_PATH}}"
+TARGET_REPO_OWNER="{{REPO_OWNER}}"
+TARGET_REPO_NAME="{{PROJECT_NAME}}"
+TARGET_DEFAULT_BRANCH="{{DEFAULT_BRANCH}}"
+```
+
+Edit this file if the target project path changes.
+
+## Updates
+
+Check for toolkit updates:
+```bash
+git -C {{TOOLKIT_SOURCE}} fetch origin
+git -C {{TOOLKIT_SOURCE}} log HEAD..origin/main --oneline
+```
+
+Apply updates by re-running the toolkit application process from `{{TOOLKIT_SOURCE}}`.
+
+## Troubleshooting
+
+### Skills not finding target project
+
+1. Verify the path in `.claude/workspace-config`
+2. Ensure the target project is a git repository with a GitHub remote
+3. Use `--project <path>` flag to override
+
+### GitHub authentication issues
+
+```bash
+gh auth status
+gh auth login
+```
+
+### Git operations failing
+
+```bash
+# Ensure SSH keys are configured, or use HTTPS
+gh auth setup-git
+```

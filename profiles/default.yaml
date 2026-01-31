@@ -6,6 +6,13 @@ project:
   repo_owner: "{{REPO_OWNER}}"
   default_branch: "main"
 
+# Workspace configuration (new workspace model)
+# Set installation_mode to "workspace" when applying to a separate workspace directory
+workspace:
+  installation_mode: "embedded"  # "embedded" (in-project) or "workspace" (separate directory)
+  target_project_path: ""        # Required for workspace mode: absolute path to target project
+  workspace_name: ""             # Optional: name of workspace directory
+
 workflow:
   skills_dir: ".claude/skills"
   codex_skills_dir: ".codex/skills"

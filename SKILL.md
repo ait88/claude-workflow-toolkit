@@ -76,6 +76,106 @@ After applying:
 4. Run check-workflow to verify it detects current state
 5. Review generated documentation for accuracy
 
+## Workspace Model (Recommended)
+
+The **workspace model** keeps your target project clean by placing all toolkit infrastructure in a separate workspace directory. This is the recommended approach for new installations.
+
+### When to Use Workspace Model
+
+- **New projects**: Start with workspace model from the beginning
+- **Shared projects**: Keep workflow tools separate from project code
+- **Multiple targets**: Use different workspaces for different projects
+- **Clean separation**: Target project stays free of toolkit scaffolding
+
+### Workspace Directory Structure
+
+```
+~/myproject-workspace/          # Workspace (toolkit infrastructure)
+├── .claude/
+│   ├── skills/                 # Skills operate on target project
+│   ├── commands/               # Command documentation
+│   ├── workspace-config        # Points to target project
+│   └── toolkit-version
+├── .codex/skills -> .claude/skills
+└── WORKSPACE.md                # Explains relationship
+
+~/myproject/                    # Target project (unchanged/clean)
+├── <your code>
+└── .git/
+```
+
+### Workspace Application Steps
+
+1. **Create workspace directory**:
+   ```bash
+   mkdir ~/myproject-workspace
+   cd ~/myproject-workspace
+   ```
+
+2. **Gather target project information**:
+   ```bash
+   TARGET_PROJECT="$HOME/myproject"
+   REPO_OWNER=$(cd "$TARGET_PROJECT" && gh repo view --json owner --jq '.owner.login')
+   REPO_NAME=$(cd "$TARGET_PROJECT" && gh repo view --json name --jq '.name')
+   ```
+
+3. **Apply templates to workspace** (not target project):
+   - Generate `.claude/skills/*` in workspace
+   - Generate `.claude/workspace-config` pointing to target
+   - Generate `WORKSPACE.md`
+
+4. **Set installation mode**: When substituting variables, use:
+   - `{{INSTALLATION_MODE}}` = `workspace`
+   - `{{TARGET_PROJECT_PATH}}` = absolute path to target project
+
+5. **Test the workspace**:
+   ```bash
+   cd ~/myproject-workspace
+   /check-reviews
+   ```
+
+### Additional Workspace Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{TARGET_PROJECT_PATH}}` | Absolute path to target project | `/home/user/myproject` |
+| `{{WORKSPACE_NAME}}` | Name of workspace directory | `myproject-workspace` |
+| `{{WORKSPACE_PATH}}` | Full path to workspace | `/home/user/myproject-workspace` |
+| `{{INSTALLATION_MODE}}` | Installation mode | `workspace` or `embedded` |
+
+### Skill Flags for Workspace Mode
+
+All skills support these flags:
+- `--project <path>` or `-p <path>`: Specify target project path
+- `--repo <owner/name>` or `-r <owner/name>`: Specify GitHub repository
+
+These flags override workspace-config settings, enabling ad-hoc usage:
+```bash
+# From anywhere, operate on a specific project
+/check-reviews --project ~/myproject
+/claim-issue --repo ait88/myproject 42
+```
+
+### Migrating Existing Installations
+
+Run the migration script to convert an embedded installation to workspace model:
+
+```bash
+~/claude-workflow-toolkit/scripts/migrate-to-workspace.sh \
+    ~/myproject \
+    ~/myproject-workspace
+```
+
+The migration script:
+1. Creates the workspace directory structure
+2. Copies skills and commands
+3. Generates workspace-config
+4. Interactively prompts before removing old files
+
+### Embedded Model (Legacy)
+
+For simpler setups, you can still apply the toolkit directly to the target project using `{{INSTALLATION_MODE}}` = `embedded`. This is the original behavior where all toolkit files live inside the target project.
+
 ## Template Reference
 
 ### Skills Templates

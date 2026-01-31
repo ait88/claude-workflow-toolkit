@@ -1,9 +1,119 @@
 #!/usr/bin/env bash
 # Skill: /check-workflow
 # Description: Validate workflow state using optimized GraphQL queries
-# Usage: /check-workflow
+# Usage: /check-workflow [--project <path>]
 
 set -euo pipefail
+
+# ============================================================================
+# WORKSPACE/PROJECT MODE DETECTION
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARGET_PROJECT=""
+TARGET_REPO_OWNER=""
+TARGET_REPO_NAME=""
+MODE=""
+REMAINING_ARGS=()
+
+_parse_project_flag() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project|-p)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_PROJECT="$2"
+                    shift 2
+                else
+                    echo "Error: --project requires a path argument"
+                    exit 1
+                fi
+                ;;
+            --repo|-r)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_REPO_OWNER="${2%%/*}"
+                    TARGET_REPO_NAME="${2##*/}"
+                    shift 2
+                else
+                    echo "Error: --repo requires owner/name argument"
+                    exit 1
+                fi
+                ;;
+            *)
+                REMAINING_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+_load_workspace_config() {
+    local config_file="${SCRIPT_DIR}/../workspace-config"
+    if [[ -f "$config_file" ]]; then
+        # shellcheck source=/dev/null
+        source "$config_file"
+        TARGET_PROJECT="${TARGET_PROJECT_PATH:-}"
+        TARGET_REPO_OWNER="${TARGET_REPO_OWNER:-}"
+        TARGET_REPO_NAME="${TARGET_REPO_NAME:-}"
+        return 0
+    fi
+    return 1
+}
+
+_detect_mode() {
+    if [[ -n "$TARGET_PROJECT" ]] || [[ -n "$TARGET_REPO_OWNER" ]]; then
+        MODE="explicit"
+        return
+    fi
+    if _load_workspace_config; then
+        MODE="workspace"
+        return
+    fi
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        TARGET_PROJECT="$(pwd)"
+        MODE="in-project"
+        return
+    fi
+    echo "Error: Not in a git repository and no workspace config found."
+    echo ""
+    echo "Options:"
+    echo "  1. Run from within the target project directory"
+    echo "  2. Use --project <path> flag"
+    echo "  3. Create .claude/workspace-config with TARGET_PROJECT_PATH"
+    exit 1
+}
+
+_get_repo_info() {
+    if [[ -n "$TARGET_REPO_OWNER" ]] && [[ -n "$TARGET_REPO_NAME" ]]; then
+        OWNER="$TARGET_REPO_OWNER"
+        REPO="$TARGET_REPO_NAME"
+    else
+        local repo_info
+        if [[ -n "$TARGET_PROJECT" ]] && [[ "$MODE" != "in-project" ]]; then
+            repo_info=$(cd "$TARGET_PROJECT" && gh repo view --json owner,name)
+        else
+            repo_info=$(gh repo view --json owner,name)
+        fi
+        OWNER=$(echo "$repo_info" | jq -r '.owner.login')
+        REPO=$(echo "$repo_info" | jq -r '.name')
+    fi
+}
+
+_git() {
+    if [[ "$MODE" == "in-project" ]]; then
+        git "$@"
+    else
+        git -C "$TARGET_PROJECT" "$@"
+    fi
+}
+
+_parse_project_flag "$@"
+set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
+_detect_mode
+_get_repo_info
+
+# ============================================================================
+# END MODE DETECTION
+# ============================================================================
 
 # Colors
 RED='\033[0;31m'
@@ -13,7 +123,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Get current branch
-BRANCH=$(git branch --show-current)
+BRANCH=$(_git branch --show-current)
 
 if [[ -z "$BRANCH" ]]; then
     echo -e "${RED}Error: Not on a branch${NC}"
@@ -33,11 +143,6 @@ fi
 
 echo "Validating workflow for issue #${ISSUE} on branch ${BRANCH}..."
 echo ""
-
-# Get repository info
-REPO_INFO=$(gh repo view --json owner,name)
-OWNER=$(echo "$REPO_INFO" | jq -r '.owner.login')
-REPO=$(echo "$REPO_INFO" | jq -r '.name')
 
 # Single GraphQL query to fetch all needed data
 QUERY=$(cat <<EOF
@@ -102,12 +207,12 @@ if [[ "$HAS_PR" == "true" ]]; then
         echo -e "${GREEN}OK:${NC} Issue has 'needs-review' label (PR created)"
     else
         echo -e "${RED}ERROR:${NC} PR exists but issue doesn't have 'needs-review' label"
-        echo "  Fix: gh issue edit $ISSUE --add-label \"needs-review\""
+        echo "  Fix: gh issue edit $ISSUE --repo $OWNER/$REPO --add-label \"needs-review\""
         ((ERRORS++))
     fi
     if echo "$LABELS" | grep -q "in-progress"; then
         echo -e "${YELLOW}WARNING:${NC} Issue has 'in-progress' but PR already created"
-        echo "  Fix: gh issue edit $ISSUE --remove-label \"in-progress\""
+        echo "  Fix: gh issue edit $ISSUE --repo $OWNER/$REPO --remove-label \"in-progress\""
         ((WARNINGS++))
     fi
 else
@@ -115,12 +220,12 @@ else
         echo -e "${GREEN}OK:${NC} Issue has 'in-progress' label (actively working)"
     else
         echo -e "${RED}ERROR:${NC} Working on issue but doesn't have 'in-progress' label"
-        echo "  Fix: gh issue edit $ISSUE --add-label \"in-progress\""
+        echo "  Fix: gh issue edit $ISSUE --repo $OWNER/$REPO --add-label \"in-progress\""
         ((ERRORS++))
     fi
     if echo "$LABELS" | grep -q "agent-ready"; then
         echo -e "${YELLOW}WARNING:${NC} Issue still has 'agent-ready' label"
-        echo "  Fix: gh issue edit $ISSUE --remove-label \"agent-ready\""
+        echo "  Fix: gh issue edit $ISSUE --repo $OWNER/$REPO --remove-label \"agent-ready\""
         ((WARNINGS++))
     fi
 fi

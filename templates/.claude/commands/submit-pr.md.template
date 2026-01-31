@@ -12,9 +12,18 @@ Create a pull request and update issue labels atomically.
 
 ```bash
 /submit-pr [title] [body]
+/submit-pr --project <path> [title] [body]
+/submit-pr --repo <owner/name> [title] [body]
 ```
 
 Both title and body are optional - if omitted, values are auto-filled from commits.
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--project`, `-p` | Path to target project (overrides workspace config) |
+| `--repo`, `-r` | GitHub repository as owner/name (overrides auto-detection) |
 
 ## What it does
 

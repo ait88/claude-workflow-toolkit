@@ -1,16 +1,126 @@
 #!/usr/bin/env bash
 # Skill: /address-review
 # Description: Checkout PR branch and show review feedback for addressing
-# Usage: /address-review <pr-number>
+# Usage: /address-review [--project <path>] <pr-number>
 
 set -euo pipefail
+
+# ============================================================================
+# WORKSPACE/PROJECT MODE DETECTION
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARGET_PROJECT=""
+TARGET_REPO_OWNER=""
+TARGET_REPO_NAME=""
+MODE=""
+REMAINING_ARGS=()
+
+_parse_project_flag() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project|-p)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_PROJECT="$2"
+                    shift 2
+                else
+                    echo "Error: --project requires a path argument"
+                    exit 1
+                fi
+                ;;
+            --repo|-r)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_REPO_OWNER="${2%%/*}"
+                    TARGET_REPO_NAME="${2##*/}"
+                    shift 2
+                else
+                    echo "Error: --repo requires owner/name argument"
+                    exit 1
+                fi
+                ;;
+            *)
+                REMAINING_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+_load_workspace_config() {
+    local config_file="${SCRIPT_DIR}/../workspace-config"
+    if [[ -f "$config_file" ]]; then
+        # shellcheck source=/dev/null
+        source "$config_file"
+        TARGET_PROJECT="${TARGET_PROJECT_PATH:-}"
+        TARGET_REPO_OWNER="${TARGET_REPO_OWNER:-}"
+        TARGET_REPO_NAME="${TARGET_REPO_NAME:-}"
+        return 0
+    fi
+    return 1
+}
+
+_detect_mode() {
+    if [[ -n "$TARGET_PROJECT" ]] || [[ -n "$TARGET_REPO_OWNER" ]]; then
+        MODE="explicit"
+        return
+    fi
+    if _load_workspace_config; then
+        MODE="workspace"
+        return
+    fi
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        TARGET_PROJECT="$(pwd)"
+        MODE="in-project"
+        return
+    fi
+    echo "Error: Not in a git repository and no workspace config found."
+    echo ""
+    echo "Options:"
+    echo "  1. Run from within the target project directory"
+    echo "  2. Use --project <path> flag"
+    echo "  3. Create .claude/workspace-config with TARGET_PROJECT_PATH"
+    exit 1
+}
+
+_get_repo_info() {
+    if [[ -n "$TARGET_REPO_OWNER" ]] && [[ -n "$TARGET_REPO_NAME" ]]; then
+        OWNER="$TARGET_REPO_OWNER"
+        REPO="$TARGET_REPO_NAME"
+    else
+        local repo_info
+        if [[ -n "$TARGET_PROJECT" ]] && [[ "$MODE" != "in-project" ]]; then
+            repo_info=$(cd "$TARGET_PROJECT" && gh repo view --json owner,name)
+        else
+            repo_info=$(gh repo view --json owner,name)
+        fi
+        OWNER=$(echo "$repo_info" | jq -r '.owner.login')
+        REPO=$(echo "$repo_info" | jq -r '.name')
+    fi
+}
+
+_git() {
+    if [[ "$MODE" == "in-project" ]]; then
+        git "$@"
+    else
+        git -C "$TARGET_PROJECT" "$@"
+    fi
+}
+
+_parse_project_flag "$@"
+set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
+_detect_mode
+_get_repo_info
+
+# ============================================================================
+# END MODE DETECTION
+# ============================================================================
 
 PR_NUMBER="${1:-}"
 
 if [[ -z "$PR_NUMBER" ]]; then
     echo "Error: PR number required"
     echo ""
-    echo "Usage: /address-review <pr-number>"
+    echo "Usage: /address-review [--project <path>] <pr-number>"
     echo ""
     echo "Find PRs with reviews using:"
     echo "  /check-reviews"
@@ -20,16 +130,11 @@ fi
 echo "Fetching review details for PR #$PR_NUMBER..."
 echo ""
 
-# Get repository info dynamically
-REPO_INFO=$(gh repo view --json owner,name)
-OWNER=$(echo "$REPO_INFO" | jq -r '.owner.login')
-REPO=$(echo "$REPO_INFO" | jq -r '.name')
-
 # Bot user for filtering Codex reviews
 CODEX_BOT="{{CODEX_BOT_USER}}"
 
-# Get PR details
-PR_INFO=$(gh pr view "$PR_NUMBER" --json title,headRefName,body,reviews,state,author)
+# Get PR details (using explicit repo)
+PR_INFO=$(gh pr view "$PR_NUMBER" --repo "$OWNER/$REPO" --json title,headRefName,body,reviews,state,author)
 
 PR_TITLE=$(echo "$PR_INFO" | jq -r '.title')
 PR_BRANCH=$(echo "$PR_INFO" | jq -r '.headRefName')
@@ -43,12 +148,12 @@ echo "   Author: $PR_AUTHOR"
 echo ""
 
 # Get current branch
-CURRENT_BRANCH=$(git branch --show-current)
+CURRENT_BRANCH=$(_git branch --show-current)
 
 # Fetch and checkout PR branch
 echo "Fetching and checking out branch: $PR_BRANCH"
-git fetch origin "$PR_BRANCH"
-git checkout "$PR_BRANCH"
+_git fetch origin "$PR_BRANCH"
+_git checkout "$PR_BRANCH"
 
 echo ""
 echo "Checked out branch: $PR_BRANCH (was: $CURRENT_BRANCH)"
@@ -130,5 +235,5 @@ echo "     git commit -m 'fix: address review feedback (#$PR_NUMBER)'"
 echo "     git push"
 echo ""
 echo "  5. Comment on the PR to notify reviewers:"
-echo "     gh pr comment $PR_NUMBER --body 'Addressed review feedback'"
+echo "     gh pr comment $PR_NUMBER --repo $OWNER/$REPO --body 'Addressed review feedback'"
 echo ""

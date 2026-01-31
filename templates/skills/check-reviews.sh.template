@@ -2,14 +2,147 @@
 # Skill: /check-reviews
 # Description: Find PRs with unaddressed review feedback (Codex and human reviews)
 # Priority: Run BEFORE looking for new issues
-# Usage: /check-reviews
+# Usage: /check-reviews [--project <path>]
 
 set -euo pipefail
 
+# ============================================================================
+# WORKSPACE/PROJECT MODE DETECTION
+# ============================================================================
+# This skill supports three modes:
+#   1. Explicit --project flag
+#   2. Workspace config (.claude/workspace-config)
+#   3. In-project mode (cwd is git repo) - legacy behavior
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARGET_PROJECT=""
+TARGET_REPO_OWNER=""
+TARGET_REPO_NAME=""
+MODE=""
+REMAINING_ARGS=()
+
+# Parse --project flag if provided
+_parse_project_flag() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project|-p)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_PROJECT="$2"
+                    shift 2
+                else
+                    echo "Error: --project requires a path argument"
+                    exit 1
+                fi
+                ;;
+            --repo|-r)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_REPO_OWNER="${2%%/*}"
+                    TARGET_REPO_NAME="${2##*/}"
+                    shift 2
+                else
+                    echo "Error: --repo requires owner/name argument"
+                    exit 1
+                fi
+                ;;
+            *)
+                REMAINING_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+_load_workspace_config() {
+    local config_file="${SCRIPT_DIR}/../workspace-config"
+    if [[ -f "$config_file" ]]; then
+        # Source the config file (bash format)
+        # shellcheck source=/dev/null
+        source "$config_file"
+        TARGET_PROJECT="${TARGET_PROJECT_PATH:-}"
+        TARGET_REPO_OWNER="${TARGET_REPO_OWNER:-}"
+        TARGET_REPO_NAME="${TARGET_REPO_NAME:-}"
+        return 0
+    fi
+    return 1
+}
+
+_detect_mode() {
+    # Priority 1: Explicit flags already set
+    if [[ -n "$TARGET_PROJECT" ]] || [[ -n "$TARGET_REPO_OWNER" ]]; then
+        MODE="explicit"
+        return
+    fi
+
+    # Priority 2: Workspace config
+    if _load_workspace_config; then
+        MODE="workspace"
+        return
+    fi
+
+    # Priority 3: In-project mode (cwd is git repo)
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        TARGET_PROJECT="$(pwd)"
+        MODE="in-project"
+        return
+    fi
+
+    echo "Error: Not in a git repository and no workspace config found."
+    echo ""
+    echo "Options:"
+    echo "  1. Run from within the target project directory"
+    echo "  2. Use --project <path> flag"
+    echo "  3. Create .claude/workspace-config with TARGET_PROJECT_PATH"
+    exit 1
+}
+
+# Get repo info - works in both modes
+_get_repo_info() {
+    if [[ -n "$TARGET_REPO_OWNER" ]] && [[ -n "$TARGET_REPO_NAME" ]]; then
+        OWNER="$TARGET_REPO_OWNER"
+        REPO="$TARGET_REPO_NAME"
+    else
+        local repo_info
+        if [[ -n "$TARGET_PROJECT" ]] && [[ "$MODE" != "in-project" ]]; then
+            repo_info=$(cd "$TARGET_PROJECT" && gh repo view --json owner,name)
+        else
+            repo_info=$(gh repo view --json owner,name)
+        fi
+        OWNER=$(echo "$repo_info" | jq -r '.owner.login')
+        REPO=$(echo "$repo_info" | jq -r '.name')
+    fi
+}
+
+# Run git command in target project
+_git() {
+    if [[ "$MODE" == "in-project" ]]; then
+        git "$@"
+    else
+        git -C "$TARGET_PROJECT" "$@"
+    fi
+}
+
+# Initialize mode detection
+_parse_project_flag "$@"
+set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
+_detect_mode
+_get_repo_info
+
+# ============================================================================
+# END MODE DETECTION
+# ============================================================================
+
 # Toolkit update check (silent unless updates available)
 _check_toolkit_updates() {
-    local toolkit_dir="${HOME}/claude-workflow-toolkit"
-    local version_file=".claude/toolkit-version"
+    local toolkit_dir="${TOOLKIT_SOURCE:-${HOME}/claude-workflow-toolkit}"
+    local version_file
+
+    # Locate version file based on mode
+    if [[ "$MODE" == "in-project" ]]; then
+        version_file=".claude/toolkit-version"
+    else
+        version_file="${SCRIPT_DIR}/../toolkit-version"
+    fi
 
     # Skip if toolkit doesn't exist or version file missing
     [[ -d "$toolkit_dir/.git" ]] || return 0
@@ -26,26 +159,45 @@ _check_toolkit_updates() {
 
     # Only notify if different
     if [[ "$stored_commit" != "$current_commit" ]]; then
-        echo "NOTE: Workflow toolkit updates available in ~/claude-workflow-toolkit"
+        echo "NOTE: Workflow toolkit updates available in $toolkit_dir"
         echo "      (Applied: ${stored_commit:0:7}, Current: ${current_commit:0:7})"
         echo ""
     fi
 }
+
+# Check for legacy embedded installation and suggest workspace model
+_check_legacy_installation() {
+    # Only check in in-project mode
+    [[ "$MODE" == "in-project" ]] || return 0
+
+    local version_file=".claude/toolkit-version"
+    [[ -f "$version_file" ]] || return 0
+
+    # Check if using embedded mode (no workspace-config)
+    if [[ -f ".claude/skills/check-reviews" ]] && [[ ! -f ".claude/workspace-config" ]]; then
+        # Check stored installation mode
+        local stored_mode
+        stored_mode=$(grep "^INSTALLATION_MODE=" "$version_file" 2>/dev/null | cut -d'"' -f2 || echo "embedded")
+
+        if [[ "$stored_mode" == "embedded" ]] || [[ -z "$stored_mode" ]]; then
+            echo "TIP: Workspace model now available - keeps target project clean."
+            echo "     Run: ~/claude-workflow-toolkit/scripts/migrate-to-workspace.sh"
+            echo ""
+        fi
+    fi
+}
+
 _check_toolkit_updates
+_check_legacy_installation
 
 echo "Checking for PRs needing review response..."
 echo ""
 
-# Get repository info dynamically
-REPO_INFO=$(gh repo view --json owner,name)
-OWNER=$(echo "$REPO_INFO" | jq -r '.owner.login')
-REPO=$(echo "$REPO_INFO" | jq -r '.name')
-
 # Bot user for filtering Codex reviews
 CODEX_BOT="{{CODEX_BOT_USER}}"
 
-# Get open PRs with reviews
-PRS_WITH_REVIEWS=$(gh pr list --state open --json number,title,author,reviews,reviewDecision,headRefName --jq '
+# Get open PRs with reviews (using explicit repo)
+PRS_WITH_REVIEWS=$(gh pr list --repo "$OWNER/$REPO" --state open --json number,title,author,reviews,reviewDecision,headRefName --jq '
   .[] | select(.reviews | length > 0) |
   {
     number,
@@ -61,7 +213,7 @@ if [[ -z "$PRS_WITH_REVIEWS" || "$PRS_WITH_REVIEWS" == "null" ]]; then
     echo "No PRs with pending reviews found."
     echo ""
     echo "You can proceed with new issues:"
-    echo "  gh issue list --label \"agent-ready\" --limit 5"
+    echo "  gh issue list --repo $OWNER/$REPO --label \"agent-ready\" --limit 5"
     exit 0
 fi
 
@@ -74,7 +226,7 @@ echo ""
 
 FOUND_CODEX=0
 
-for PR in $(gh pr list --state open --json number --jq '.[].number'); do
+for PR in $(gh pr list --repo "$OWNER/$REPO" --state open --json number --jq '.[].number'); do
     CODEX_COMMENTS=$(gh api "repos/$OWNER/$REPO/pulls/$PR/comments" --jq "
       [.[] | select(.user.login == \"$CODEX_BOT\")] | length
     " 2>/dev/null || echo "0")
@@ -113,6 +265,6 @@ echo "  Address review feedback with:"
 echo "    /address-review <pr-number>"
 echo ""
 echo "  Or view details:"
-echo "    gh pr view <pr-number>"
+echo "    gh pr view <pr-number> --repo $OWNER/$REPO"
 echo ""
 echo "PRIORITY: Address reviews before starting new issues!"

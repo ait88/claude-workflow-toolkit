@@ -12,7 +12,16 @@ Checkout a PR branch and display all review feedback for addressing.
 
 ```bash
 /address-review <pr-number>
+/address-review --project <path> <pr-number>
+/address-review --repo <owner/name> <pr-number>
 ```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--project`, `-p` | Path to target project (overrides workspace config) |
+| `--repo`, `-r` | GitHub repository as owner/name (overrides auto-detection) |
 
 ## What it does
 

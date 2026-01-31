@@ -12,7 +12,16 @@ Atomically claim an issue and set up your working branch.
 
 ```bash
 /claim-issue <issue-number>
+/claim-issue --project <path> <issue-number>
+/claim-issue --repo <owner/name> <issue-number>
 ```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--project`, `-p` | Path to target project (overrides workspace config) |
+| `--repo`, `-r` | GitHub repository as owner/name (overrides auto-detection) |
 
 ## What it does
 

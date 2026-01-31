@@ -12,7 +12,16 @@ Find PRs with unaddressed review feedback from Codex and human reviewers.
 
 ```bash
 /check-reviews
+/check-reviews --project <path>
+/check-reviews --repo <owner/name>
 ```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--project`, `-p` | Path to target project (overrides workspace config) |
+| `--repo`, `-r` | GitHub repository as owner/name (overrides auto-detection) |
 
 ## What it does
 

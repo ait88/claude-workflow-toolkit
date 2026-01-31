@@ -12,7 +12,16 @@ Validates your current workflow state using optimized GraphQL queries.
 
 ```bash
 /check-workflow
+/check-workflow --project <path>
+/check-workflow --repo <owner/name>
 ```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--project`, `-p` | Path to target project (overrides workspace config) |
+| `--repo`, `-r` | GitHub repository as owner/name (overrides auto-detection) |
 
 ## What it does
 
