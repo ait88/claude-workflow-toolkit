@@ -530,7 +530,7 @@ _worker_loop() {
 
             if $DRY_RUN; then
                 echo -e "${YELLOW}[DRY RUN]${NC} Would claim issue #$issue_num"
-                ((issues_completed++))
+                ((++issues_completed))
                 continue
             fi
 
@@ -579,7 +579,7 @@ _worker_loop() {
                     '["Fix manually", "Skip quality gates", "Abandon issue"]'
                 _log_history "BLOCKED" "$current_issue" "Quality gates failed after $MAX_RETRIES attempts"
                 _clear_current_issue
-                ((issues_completed++))
+                ((++issues_completed))
                 continue
             fi
 
@@ -609,7 +609,7 @@ _worker_loop() {
                     "Error: ${error_context}" \
                     '["Retry manually", "Abandon issue"]'
                 _clear_current_issue
-                ((issues_completed++))
+                ((++issues_completed))
                 continue
             fi
         fi
@@ -618,7 +618,7 @@ _worker_loop() {
         echo -e "${GREEN}Issue #$current_issue completed successfully${NC}"
         _log_history "COMPLETED" "$current_issue" "PR submitted"
         _clear_current_issue
-        ((issues_completed++))
+        ((++issues_completed))
     done
 
     echo ""
@@ -628,6 +628,7 @@ _worker_loop() {
     echo "Issues processed: $issues_completed"
     echo ""
     echo "Review history: $HISTORY_FILE"
+    return 0
 }
 
 # ============================================================================
@@ -662,3 +663,4 @@ _init_worker_state
 
 # Run the loop
 _worker_loop
+exit 0
