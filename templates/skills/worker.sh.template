@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Skill: /worker
-# Description: Autonomous development loop - claim issues, implement, test, submit PRs
-# Usage: /worker [--project <path>] [--max-issues <n>] [--once] [--dry-run]
+# Description: Unified workflow entry point - status, single cycle, or autonomous loop
+# Usage: /worker [--status] [--once] [--help] [--project <path>] [--max-issues <n>]
 
 set -euo pipefail
 
@@ -128,6 +128,8 @@ DRY_RUN=false
 
 # Parse worker-specific flags
 RESET_STATE=false
+SHOW_STATUS=false
+SHOW_HELP=false
 
 _parse_worker_flags() {
     local args=()
@@ -147,6 +149,14 @@ _parse_worker_flags() {
                 ;;
             --reset)
                 RESET_STATE=true
+                shift
+                ;;
+            --status|-s)
+                SHOW_STATUS=true
+                shift
+                ;;
+            --help|-h)
+                SHOW_HELP=true
                 shift
                 ;;
             *)
@@ -441,6 +451,272 @@ _has_commits_ahead() {
 }
 
 # ============================================================================
+# HELP AND STATUS
+# ============================================================================
+
+_show_help() {
+    cat <<EOF
+Usage: /worker [OPTIONS]
+
+Unified workflow entry point for development.
+
+MODES:
+  /worker --status      Show workflow status (skills, reviews, issues)
+  /worker --once        Run one complete cycle (claim → implement → submit)
+  /worker               Continuous autonomous loop
+  /worker --help        Show this help message
+
+OPTIONS:
+  --status, -s          Show workflow status without taking action
+  --once                Process exactly one issue then stop
+  --max-issues <n>      Maximum issues to process (default: {{WORKER_MAX_ISSUES}})
+  --dry-run             Show what would happen without making changes
+  --reset               Clear worker state (lock, current issue, queue)
+  --project, -p <path>  Target project path (overrides workspace config)
+  --repo, -r <o/n>      GitHub repo as owner/name (overrides auto-detection)
+  --help, -h            Show this help message
+
+WORKFLOW:
+  1. /worker --status   Check what needs attention
+  2. /worker --once     Start one work cycle
+  3. Implement solution
+  4. /worker --once     Continue (runs quality gates, submits PR)
+  5. Repeat
+
+EXAMPLES:
+  /worker --status                    # See current state
+  /worker --once                      # Claim and start one issue
+  /worker --once --dry-run            # Preview without changes
+  /worker --max-issues 3              # Process up to 3 issues
+  /worker --reset                     # Clear stale state
+
+STATE FILES:
+  Worker state is stored in: ${SCRIPT_DIR}/../worker/
+  - current-issue: Currently claimed issue
+  - history.log: Completed issue history
+  - decision-queue/: Issues needing human input
+
+EOF
+}
+
+_check_skill_staleness() {
+    # Returns: 0=up-to-date, 1=outdated, 2=cannot-check
+    # Sets: SKILLS_OUTDATED, SKILLS_MISSING
+    SKILLS_OUTDATED=0
+    SKILLS_MISSING=0
+
+    # Find toolkit source
+    local toolkit_source="${TOOLKIT_SOURCE:-}"
+    # Expand tilde if present (tilde doesn't expand when read from config file)
+    toolkit_source="${toolkit_source/#\~/$HOME}"
+
+    if [[ -z "$toolkit_source" ]]; then
+        if [[ -d "$HOME/claude-workflow-toolkit" ]]; then
+            toolkit_source="$HOME/claude-workflow-toolkit"
+        elif [[ -d "${SCRIPT_DIR}/../../templates" ]]; then
+            toolkit_source="$(realpath "${SCRIPT_DIR}/../..")"
+        fi
+    fi
+
+    if [[ -z "$toolkit_source" ]] || [[ ! -d "$toolkit_source/templates/skills" ]]; then
+        return 2  # Cannot check
+    fi
+
+    local skills_dir="${SCRIPT_DIR}"
+    for template in "$toolkit_source/templates/skills/"*.sh.template; do
+        [[ -f "$template" ]] || continue
+        local skill_name
+        skill_name=$(basename "$template" .sh.template)
+        local installed_file="$skills_dir/$skill_name"
+
+        if [[ ! -f "$installed_file" ]]; then
+            ((++SKILLS_MISSING))
+        elif [[ "$template" -nt "$installed_file" ]]; then
+            ((++SKILLS_OUTDATED))
+        fi
+    done
+
+    if [[ $SKILLS_OUTDATED -eq 0 ]] && [[ $SKILLS_MISSING -eq 0 ]]; then
+        return 0  # Up to date
+    fi
+    return 1  # Outdated
+}
+
+_get_branch_context() {
+    # Returns context about current branch state
+    # Sets: BRANCH_NAME, BRANCH_ISSUE, BRANCH_CONTEXT
+    BRANCH_NAME=$(_git branch --show-current 2>/dev/null || echo "")
+    BRANCH_ISSUE=""
+    BRANCH_CONTEXT="unknown"
+
+    if [[ -z "$BRANCH_NAME" ]]; then
+        BRANCH_CONTEXT="detached"
+        return
+    fi
+
+    if [[ "$BRANCH_NAME" == "{{DEFAULT_BRANCH}}" ]] || [[ "$BRANCH_NAME" == "main" ]] || [[ "$BRANCH_NAME" == "master" ]]; then
+        BRANCH_CONTEXT="default"
+        return
+    fi
+
+    # Extract issue number from branch name
+    BRANCH_ISSUE=$(echo "$BRANCH_NAME" | grep -oE '^[0-9]+' || echo "")
+
+    if [[ -z "$BRANCH_ISSUE" ]]; then
+        BRANCH_CONTEXT="feature"  # Feature branch without issue number
+        return
+    fi
+
+    # Check issue state
+    local issue_state
+    issue_state=$(gh issue view "$BRANCH_ISSUE" --repo "$OWNER/$REPO" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
+
+    case "$issue_state" in
+        OPEN)
+            BRANCH_CONTEXT="active"
+            ;;
+        CLOSED)
+            BRANCH_CONTEXT="closed"
+            ;;
+        *)
+            BRANCH_CONTEXT="unknown"
+            ;;
+    esac
+}
+
+_show_status() {
+    echo ""
+    echo "========================================"
+    echo -e "${BLUE}Workflow Status${NC}"
+    echo "========================================"
+    echo ""
+    echo -e "Repository: ${BLUE}$OWNER/$REPO${NC}"
+
+    # Branch context
+    _get_branch_context
+    echo -e "Branch:     ${BLUE}$BRANCH_NAME${NC}"
+    echo ""
+
+    # Skills staleness
+    echo "----------------------------------------"
+    echo "Pre-flight Checks"
+    echo "----------------------------------------"
+    echo ""
+
+    _check_skill_staleness
+    local staleness_result=$?
+    case $staleness_result in
+        0)
+            echo -e "${GREEN}✓ Skills:${NC} Up to date"
+            ;;
+        1)
+            echo -e "${YELLOW}! Skills:${NC} $SKILLS_OUTDATED outdated, $SKILLS_MISSING missing"
+            echo -e "  Run: ${BLUE}/sync-skills${NC}"
+            ;;
+        2)
+            echo -e "${YELLOW}? Skills:${NC} Could not locate toolkit for validation"
+            ;;
+    esac
+
+    # Pending reviews
+    local pending_reviews
+    pending_reviews=$(gh pr list --repo "$OWNER/$REPO" --state open --json number,reviews \
+        --jq '[.[] | select(.reviews | length > 0) | select(.reviews | map(select(.state == "CHANGES_REQUESTED")) | length > 0)] | length' 2>/dev/null || echo "0")
+
+    if [[ "$pending_reviews" -gt 0 ]]; then
+        echo -e "${YELLOW}! Reviews:${NC} $pending_reviews PR(s) need attention"
+        echo -e "  Run: ${BLUE}/check-reviews${NC}"
+    else
+        echo -e "${GREEN}✓ Reviews:${NC} None pending"
+    fi
+
+    # Available issues
+    local agent_ready
+    agent_ready=$(gh issue list --repo "$OWNER/$REPO" --label "agent-ready" --state open --json number --jq 'length' 2>/dev/null || echo "0")
+    echo -e "${BLUE}ℹ Issues:${NC}  $agent_ready ready for work"
+
+    # Current worker state
+    local current_issue
+    current_issue=$(_get_current_issue 2>/dev/null || echo "")
+    if [[ -n "$current_issue" ]]; then
+        echo -e "${BLUE}ℹ Worker:${NC}  Issue #$current_issue in progress"
+    fi
+
+    # Pending decisions
+    local decision_count
+    decision_count=$(find "$DECISION_DIR" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$decision_count" -gt 0 ]]; then
+        echo -e "${YELLOW}! Queue:${NC}   $decision_count decision(s) pending"
+        echo -e "  Review: ${BLUE}ls $DECISION_DIR${NC}"
+    fi
+
+    echo ""
+    echo "----------------------------------------"
+    echo "Next Steps"
+    echo "----------------------------------------"
+    echo ""
+
+    # Context-aware next steps (addresses #34)
+    case "$BRANCH_CONTEXT" in
+        closed)
+            echo -e "${YELLOW}You're on a branch for closed issue #$BRANCH_ISSUE${NC}"
+            echo ""
+            echo "Suggested actions:"
+            echo -e "  ${BLUE}git checkout {{DEFAULT_BRANCH}} && git pull${NC}"
+            echo -e "  ${BLUE}/worker --status${NC}"
+            ;;
+        active)
+            echo -e "Working on issue #$BRANCH_ISSUE"
+            echo ""
+            if [[ -n "$current_issue" ]] && [[ "$current_issue" == "$BRANCH_ISSUE" ]]; then
+                if _has_commits_ahead 2>/dev/null; then
+                    echo "Ready for quality gates and PR submission:"
+                    echo -e "  ${BLUE}/worker --once${NC}    Run quality gates and submit PR"
+                elif _has_uncommitted_changes 2>/dev/null; then
+                    echo "Uncommitted changes detected:"
+                    echo -e "  ${BLUE}git add . && git commit${NC}"
+                    echo -e "  ${BLUE}/worker --once${NC}"
+                else
+                    echo "Implement the solution, then:"
+                    echo -e "  ${BLUE}/worker --once${NC}    Continue workflow"
+                fi
+            else
+                echo "Continue working or submit:"
+                echo -e "  ${BLUE}/worker --once${NC}    Run quality gates and submit PR"
+            fi
+            ;;
+        default)
+            if [[ "$pending_reviews" -gt 0 ]]; then
+                echo "Address reviews first:"
+                echo -e "  ${BLUE}/check-reviews${NC}       See review details"
+                echo -e "  ${BLUE}/address-review <n>${NC}  Checkout PR and see feedback"
+            elif [[ "$agent_ready" -gt 0 ]]; then
+                echo "Ready to start work:"
+                echo -e "  ${BLUE}/worker --once${NC}       Claim next issue and start"
+                echo -e "  ${BLUE}/claim-issue <n>${NC}     Claim specific issue"
+                echo ""
+                echo "Find work:"
+                echo -e "  ${BLUE}gh issue list --repo $OWNER/$REPO --label agent-ready${NC}"
+            else
+                echo "No issues ready for work."
+                echo ""
+                echo "Check for new issues or create one:"
+                echo -e "  ${BLUE}gh issue list --repo $OWNER/$REPO${NC}"
+            fi
+            ;;
+        *)
+            echo "Available commands:"
+            echo -e "  ${BLUE}/worker --once${NC}       Start or continue one work cycle"
+            echo -e "  ${BLUE}/worker${NC}              Run autonomous loop"
+            echo -e "  ${BLUE}/check-reviews${NC}       Check for PR feedback"
+            echo -e "  ${BLUE}/claim-issue <n>${NC}     Claim specific issue"
+            ;;
+    esac
+
+    echo ""
+}
+
+# ============================================================================
 # MAIN WORKER LOOP
 # ============================================================================
 
@@ -642,20 +918,34 @@ REMAINING_ARGS=()
 _parse_worker_flags "$@"
 set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
 
+# Handle --help flag early (before mode detection)
+if $SHOW_HELP; then
+    _show_help
+    exit 0
+fi
+
 # Initialize
 _detect_mode
 _get_repo_info
 
+# Set up worker paths (needed for status and reset)
+WORKER_DIR="${SCRIPT_DIR}/../worker"
+LOCK_FILE="${WORKER_DIR}/worker.lock"
+STATE_FILE="${WORKER_DIR}/current-issue"
+BRANCH_FILE="${WORKER_DIR}/current-branch"
+RETRY_FILE="${WORKER_DIR}/retry-count"
+DECISION_DIR="${WORKER_DIR}/decision-queue"
+mkdir -p "$WORKER_DIR" "$DECISION_DIR"
+
 # Handle --reset flag
 if $RESET_STATE; then
-    # Set up paths without acquiring lock
-    WORKER_DIR="${SCRIPT_DIR}/../worker"
-    LOCK_FILE="${WORKER_DIR}/worker.lock"
-    STATE_FILE="${WORKER_DIR}/current-issue"
-    BRANCH_FILE="${WORKER_DIR}/current-branch"
-    RETRY_FILE="${WORKER_DIR}/retry-count"
-    DECISION_DIR="${WORKER_DIR}/decision-queue"
     _reset_worker_state
+    exit 0
+fi
+
+# Handle --status flag
+if $SHOW_STATUS; then
+    _show_status
     exit 0
 fi
 

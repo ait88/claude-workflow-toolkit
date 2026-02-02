@@ -66,42 +66,54 @@ Or manually:
 
 ## Agent Priming
 
-To ensure agents follow the PR-based workflow correctly, start them with context:
+To ensure agents follow the PR-based workflow correctly, start them with the unified `/worker` command:
 
 ### Recommended Startup Command
 
 ```bash
 cd ~/workspaces/myproject
-claude -c "read CLAUDE.md then /check-workflow"
+claude -c "read CLAUDE.md then /worker --status"
 ```
 
 This ensures the agent:
 1. **Reads workflow rules** - Including "NEVER push to main"
-2. **Sees workspace status** - Outdated skills, pending reviews, available issues
-3. **Knows entry points** - `/check-reviews`, `/claim-issue`, `/sync-skills`
+2. **Sees comprehensive status** - Skills, reviews, issues, branch context
+3. **Gets context-aware guidance** - Suggested next steps based on current state
 
-### Alternative: Autonomous Worker
+### Single Work Cycle
 
-For fully autonomous operation:
+For one complete work cycle (claim → implement → submit):
 
 ```bash
 claude -c "/worker --once"
 ```
 
 The worker will:
-1. Check for PRs needing attention
+1. Check for PRs needing attention (blocks if found)
 2. Find and claim an `agent-ready` issue
-3. Wait for you to implement
-4. Run quality gates and submit PR
+3. Pause for implementation
+4. Run quality gates and submit PR when code is ready
 
-### Why Priming Matters
+### Fully Autonomous
 
-Without priming, agents may:
-- Push directly to main (bypassing PR review)
-- Miss the workflow skills entirely
-- Not know about the review-first policy
+For continuous autonomous operation:
 
-The `CLAUDE.md` file and `/check-workflow` command together provide complete context.
+```bash
+claude -c "/worker"
+```
+
+### Why `/worker` as Entry Point
+
+The `/worker` command is the **unified entry point** for all workflow operations:
+
+| Mode | Purpose |
+|------|---------|
+| `/worker --status` | What needs attention? (start here) |
+| `/worker --once` | One complete work cycle |
+| `/worker` | Continuous autonomous loop |
+| `/worker --help` | Show all options |
+
+This consolidation means agents always know where to start and what to do next.
 
 ## Installation Modes
 

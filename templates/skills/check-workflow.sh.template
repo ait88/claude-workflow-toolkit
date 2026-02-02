@@ -2,8 +2,15 @@
 # Skill: /check-workflow
 # Description: Validate workflow state using optimized GraphQL queries
 # Usage: /check-workflow [--project <path>]
+#
+# NOTE: This skill is being consolidated into /worker --status
+#       Consider using /worker --status for comprehensive workflow status
 
 set -euo pipefail
+
+# Deprecation notice (soft - still functional)
+echo -e "\033[0;33mTip:\033[0m Use /worker --status for comprehensive workflow status"
+echo ""
 
 # ============================================================================
 # WORKSPACE/PROJECT MODE DETECTION
@@ -272,6 +279,12 @@ WARNINGS=0
 # Check issue state
 if [[ "$ISSUE_STATE" == "CLOSED" ]]; then
     echo -e "${RED}CRITICAL:${NC} Issue is closed but you're on its branch"
+    echo ""
+    echo "Suggested next steps:"
+    echo -e "  ${BLUE}git checkout {{DEFAULT_BRANCH}} && git pull${NC}"
+    echo -e "  ${BLUE}/worker --status${NC}"
+    echo -e "  ${BLUE}/claim-issue <next-issue>${NC}"
+    echo ""
     ((ERRORS++))
 fi
 
