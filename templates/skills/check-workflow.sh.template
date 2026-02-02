@@ -134,10 +134,82 @@ fi
 ISSUE=$(echo "$BRANCH" | grep -oE '^[0-9]+' || echo "")
 
 if [[ -z "$ISSUE" ]]; then
-    echo -e "${YELLOW}Warning: Could not extract issue number from branch: ${BRANCH}${NC}"
-    echo "Branch should be named: <issue-number>-description"
+    # Not on an issue branch - provide useful guidance instead of just skipping
+    echo -e "${BLUE}Current branch:${NC} ${BRANCH}"
     echo ""
-    echo -e "${GREEN}Workflow validation skipped (not on an issue branch)${NC}"
+    echo "========================================"
+    echo "Workspace Status"
+    echo "========================================"
+    echo ""
+
+    # Find toolkit source for validation
+    TOOLKIT_SOURCE="${TOOLKIT_SOURCE:-}"
+    if [[ -z "$TOOLKIT_SOURCE" ]]; then
+        if [[ -d "$HOME/claude-workflow-toolkit" ]]; then
+            TOOLKIT_SOURCE="$HOME/claude-workflow-toolkit"
+        elif [[ -d "${SCRIPT_DIR}/../../templates" ]]; then
+            TOOLKIT_SOURCE="$(realpath "${SCRIPT_DIR}/../..")"
+        fi
+    fi
+
+    # Quick skill staleness check
+    if [[ -n "$TOOLKIT_SOURCE" ]] && [[ -d "$TOOLKIT_SOURCE/templates/skills" ]]; then
+        OUTDATED=0
+        MISSING=0
+        SKILLS_DIR="${SCRIPT_DIR}"
+
+        for template in "$TOOLKIT_SOURCE/templates/skills/"*.sh.template; do
+            [[ -f "$template" ]] || continue
+            skill_name=$(basename "$template" .sh.template)
+            installed_file="$SKILLS_DIR/$skill_name"
+
+            if [[ ! -f "$installed_file" ]]; then
+                ((++MISSING))
+            elif [[ "$template" -nt "$installed_file" ]]; then
+                ((++OUTDATED))
+            fi
+        done
+
+        if [[ $OUTDATED -eq 0 ]] && [[ $MISSING -eq 0 ]]; then
+            echo -e "${GREEN}Skills:${NC} All up to date"
+        else
+            [[ $OUTDATED -gt 0 ]] && echo -e "${YELLOW}Skills:${NC} $OUTDATED outdated"
+            [[ $MISSING -gt 0 ]] && echo -e "${YELLOW}Skills:${NC} $MISSING missing"
+            echo -e "  Run: ${BLUE}/sync-skills${NC}"
+        fi
+    else
+        echo -e "${YELLOW}Skills:${NC} Could not locate toolkit source for validation"
+    fi
+
+    # Check for PRs needing review
+    PENDING_REVIEWS=$(gh pr list --repo "$OWNER/$REPO" --state open --json number,reviews \
+        --jq '[.[] | select(.reviews | length > 0) | select(.reviews | map(select(.state == "CHANGES_REQUESTED")) | length > 0)] | length' 2>/dev/null || echo "0")
+
+    if [[ "$PENDING_REVIEWS" -gt 0 ]]; then
+        echo -e "${YELLOW}PRs needing attention:${NC} $PENDING_REVIEWS"
+        echo -e "  Run: ${BLUE}/check-reviews${NC}"
+    else
+        echo -e "${GREEN}PRs needing attention:${NC} None"
+    fi
+
+    # Check for agent-ready issues
+    AGENT_READY=$(gh issue list --repo "$OWNER/$REPO" --label "agent-ready" --state open --json number --jq 'length' 2>/dev/null || echo "0")
+    echo -e "${BLUE}Issues ready for work:${NC} $AGENT_READY"
+
+    echo ""
+    echo "========================================"
+    echo "Next Steps"
+    echo "========================================"
+    echo ""
+    echo -e "1. ${BLUE}/check-reviews${NC}     - Check for PRs needing attention"
+    if [[ $OUTDATED -gt 0 ]] || [[ $MISSING -gt 0 ]]; then
+        echo -e "2. ${BLUE}/sync-skills${NC}      - Update outdated skills"
+        echo -e "3. ${BLUE}/claim-issue <n>${NC}  - Start work on an issue"
+    else
+        echo -e "2. ${BLUE}/claim-issue <n>${NC}  - Start work on an issue"
+    fi
+    echo ""
+    echo "Find work: gh issue list --repo $OWNER/$REPO --label agent-ready"
     exit 0
 fi
 
