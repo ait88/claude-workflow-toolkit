@@ -135,6 +135,8 @@ _get_repo_info
 # Toolkit update check (silent unless updates available)
 _check_toolkit_updates() {
     local toolkit_dir="${TOOLKIT_SOURCE:-${HOME}/claude-workflow-toolkit}"
+    # Expand tilde if present (tilde doesn't expand when read from config file)
+    toolkit_dir="${toolkit_dir/#\~/$HOME}"
     local version_file
 
     # Locate version file based on mode
