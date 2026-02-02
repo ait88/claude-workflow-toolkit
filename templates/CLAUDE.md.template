@@ -7,45 +7,49 @@ This workspace uses **claude-workflow-toolkit** for structured development.
 **NEVER push directly to main.** Always use the PR-based workflow:
 
 ```
-/check-reviews  →  /claim-issue <number>  →  implement  →  /submit-pr
+/worker --status  →  /worker --once  →  implement  →  /worker --once
 ```
 
 ## Getting Started
 
-1. **Check for pending work first:**
+1. **Check workflow status:**
    ```
-   /check-reviews
+   /worker --status
    ```
+   This shows: skill updates needed, PRs needing attention, available issues, and suggested next steps.
 
-2. **Find and claim an issue:**
+2. **Start a work cycle:**
    ```
-   gh issue list --repo {{REPO_OWNER}}/{{REPO_NAME}} --label agent-ready
-   /claim-issue <number>
+   /worker --once
    ```
+   Claims the next issue and creates a feature branch.
 
-3. **Validate your workflow state:**
+3. **Continue after implementing:**
    ```
-   /check-workflow
+   /worker --once
    ```
+   Runs quality gates and submits PR.
 
 ## Available Skills
 
 | Skill | Purpose |
 |-------|---------|
-| `/check-reviews` | Check for PRs needing attention (run FIRST) |
-| `/claim-issue <n>` | Claim issue and create feature branch |
-| `/check-workflow` | Validate current workflow state |
-| `/submit-pr` | Create PR when implementation complete |
-| `/worker` | Autonomous loop (claim → implement → submit) |
+| `/worker --status` | **Entry point** - Show workflow status and next steps |
+| `/worker --once` | Run one work cycle (claim → implement → submit) |
+| `/worker` | Continuous autonomous loop |
+| `/worker --help` | Show all worker options |
+| `/check-reviews` | Detailed view of PRs needing attention |
+| `/claim-issue <n>` | Claim specific issue (alternative to worker) |
+| `/submit-pr` | Manual PR submission (alternative to worker) |
 | `/sync-skills` | Update skills from toolkit templates |
 
 ## Workflow Rules
 
-1. **Always start with `/check-reviews`** - Address feedback before new work
-2. **One issue at a time** - Claim, implement, submit, then move on
-3. **Use feature branches** - Branch naming: `<issue-number>-<slug>`
-4. **Quality gates must pass** - Tests and lint before PR submission
-5. **Document friction** - Create issues for workflow problems encountered
+1. **Start with `/worker --status`** - See what needs attention
+2. **Address reviews first** - Worker blocks if PRs need attention
+3. **One issue at a time** - Claim, implement, submit, then move on
+4. **Use feature branches** - Branch naming: `<issue-number>-<slug>`
+5. **Quality gates must pass** - Tests and lint before PR submission
 
 ## Quick Reference
 
