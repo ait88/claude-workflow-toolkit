@@ -71,6 +71,9 @@ echo "========================================"
 # Find toolkit source
 TOOLKIT_SOURCE="${TOOLKIT_SOURCE:-}"
 
+# Expand tilde if present (tilde doesn't expand when read from config file)
+TOOLKIT_SOURCE="${TOOLKIT_SOURCE/#\~/$HOME}"
+
 if [[ -z "$TOOLKIT_SOURCE" ]]; then
     # Try common locations
     if [[ -d "$HOME/claude-workflow-toolkit" ]]; then

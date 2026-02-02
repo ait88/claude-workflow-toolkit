@@ -144,6 +144,8 @@ if [[ -z "$ISSUE" ]]; then
 
     # Find toolkit source for validation
     TOOLKIT_SOURCE="${TOOLKIT_SOURCE:-}"
+    # Expand tilde if present (tilde doesn't expand when read from config file)
+    TOOLKIT_SOURCE="${TOOLKIT_SOURCE/#\~/$HOME}"
     if [[ -z "$TOOLKIT_SOURCE" ]]; then
         if [[ -d "$HOME/claude-workflow-toolkit" ]]; then
             TOOLKIT_SOURCE="$HOME/claude-workflow-toolkit"
