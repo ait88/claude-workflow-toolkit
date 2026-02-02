@@ -88,9 +88,10 @@ fi
 
 echo -e "Toolkit: ${BLUE}$TOOLKIT_SOURCE${NC}"
 
-# Determine target
+# Determine target (workspace root, not .claude directory)
 if [[ "$MODE" == "workspace" ]]; then
-    TARGET="${SCRIPT_DIR}/.."
+    # SCRIPT_DIR is .claude/skills, go up two levels to workspace root
+    TARGET="${SCRIPT_DIR}/../.."
 else
     TARGET="$TARGET_PROJECT"
 fi
