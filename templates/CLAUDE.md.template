@@ -1,0 +1,60 @@
+# Claude Code Instructions
+
+This workspace uses **claude-workflow-toolkit** for structured development.
+
+## Required Workflow
+
+**NEVER push directly to main.** Always use the PR-based workflow:
+
+```
+/check-reviews  →  /claim-issue <number>  →  implement  →  /submit-pr
+```
+
+## Getting Started
+
+1. **Check for pending work first:**
+   ```
+   /check-reviews
+   ```
+
+2. **Find and claim an issue:**
+   ```
+   gh issue list --repo {{REPO_OWNER}}/{{REPO_NAME}} --label agent-ready
+   /claim-issue <number>
+   ```
+
+3. **Validate your workflow state:**
+   ```
+   /check-workflow
+   ```
+
+## Available Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/check-reviews` | Check for PRs needing attention (run FIRST) |
+| `/claim-issue <n>` | Claim issue and create feature branch |
+| `/check-workflow` | Validate current workflow state |
+| `/submit-pr` | Create PR when implementation complete |
+| `/worker` | Autonomous loop (claim → implement → submit) |
+| `/sync-skills` | Update skills from toolkit templates |
+
+## Workflow Rules
+
+1. **Always start with `/check-reviews`** - Address feedback before new work
+2. **One issue at a time** - Claim, implement, submit, then move on
+3. **Use feature branches** - Branch naming: `<issue-number>-<slug>`
+4. **Quality gates must pass** - Tests and lint before PR submission
+5. **Document friction** - Create issues for workflow problems encountered
+
+## Quick Reference
+
+For detailed guidance, see:
+- `.claude/docs/QUICK-REFERENCE.md` - Command reference
+- `.claude/docs/FAQ-AGENTS.md` - Common questions
+
+## Repository
+
+- **Owner:** {{REPO_OWNER}}
+- **Name:** {{REPO_NAME}}
+- **Default Branch:** {{DEFAULT_BRANCH}}

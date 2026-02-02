@@ -33,6 +33,7 @@ UPDATE_MODE=false
 DRY_RUN=false
 LIST_MODE=false
 ALL_MODE=false
+INSTALL_CLAUDE_MD=false
 SKILL_NAME=""
 
 # ============================================================================
@@ -57,6 +58,7 @@ Options:
   --dry-run            Show what would be done without making changes
   --list               List available skills
   --all                Install all skills from profile
+  --with-claude-md     Also install CLAUDE.md to project root
   --help               Show this help message
 
 Examples:
@@ -93,6 +95,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --all|-a)
             ALL_MODE=true
+            shift
+            ;;
+        --with-claude-md)
+            INSTALL_CLAUDE_MD=true
             shift
             ;;
         --help|-h)
@@ -313,6 +319,58 @@ install_skill() {
     return 0
 }
 
+# Install CLAUDE.md to project root
+install_claude_md() {
+    local template="$TOOLKIT_DIR/templates/CLAUDE.md.template"
+    local output="$TARGET_PATH/CLAUDE.md"
+
+    if [[ ! -f "$template" ]]; then
+        echo -e "${YELLOW}Warning: CLAUDE.md template not found${NC}"
+        return 1
+    fi
+
+    if [[ -f "$output" ]] && ! $UPDATE_MODE; then
+        echo -e "  ${YELLOW}⊘${NC} CLAUDE.md (already exists, use --update to override)"
+        return 0
+    fi
+
+    # Add repo-specific placeholders
+    # Try to detect from workspace-config or git
+    local repo_owner="" repo_name=""
+    if [[ -f "$TARGET_PATH/.claude/workspace-config" ]]; then
+        # shellcheck source=/dev/null
+        source "$TARGET_PATH/.claude/workspace-config"
+        repo_owner="${TARGET_REPO_OWNER:-}"
+        repo_name="${TARGET_REPO_NAME:-}"
+    fi
+
+    if [[ -z "$repo_owner" ]] && [[ -d "$TARGET_PATH/.git" ]]; then
+        local remote_url
+        remote_url=$(cd "$TARGET_PATH" && git remote get-url origin 2>/dev/null || true)
+        if [[ "$remote_url" =~ github\.com[:/]([^/]+)/([^/.]+) ]]; then
+            repo_owner="${BASH_REMATCH[1]}"
+            repo_name="${BASH_REMATCH[2]}"
+        fi
+    fi
+
+    [[ -z "$repo_owner" ]] && repo_owner="OWNER"
+    [[ -z "$repo_name" ]] && repo_name="REPO"
+
+    # Add to placeholders temporarily
+    PLACEHOLDERS[REPO_OWNER]="$repo_owner"
+    PLACEHOLDERS[REPO_NAME]="$repo_name"
+
+    if $DRY_RUN; then
+        echo -e "  ${BLUE}→${NC} CLAUDE.md"
+        echo "      Would install: $output"
+    else
+        substitute_placeholders "$template" "$output"
+        echo -e "  ${GREEN}✓${NC} CLAUDE.md"
+    fi
+
+    return 0
+}
+
 # ============================================================================
 # MAIN
 # ============================================================================
@@ -391,6 +449,13 @@ for skill in "${SKILLS_TO_INSTALL[@]}"; do
         ((++FAILED))
     fi
 done
+
+# Install CLAUDE.md if requested
+if $INSTALL_CLAUDE_MD; then
+    echo ""
+    echo "Installing CLAUDE.md..."
+    install_claude_md || ((++FAILED))
+fi
 
 echo ""
 if [[ $FAILED -eq 0 ]]; then
