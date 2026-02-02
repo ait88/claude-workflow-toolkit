@@ -31,24 +31,77 @@ If you're a Claude Code or Codex agent asked to apply this toolkit:
 
 ### For Humans
 
-1. Clone this repo:
+1. **Clone the toolkit:**
    ```bash
    git clone https://github.com/ait88/claude-workflow-toolkit.git ~/claude-workflow-toolkit
    ```
 
-2. Ask your Claude Code or Codex agent:
-   ```
-   Apply the workflow toolkit from ~/claude-workflow-toolkit to this project.
-   Use workspace mode with ~/workspaces/myproject1 as the workspace.
-   Read SKILL.md in the toolkit for instructions.
+2. **Bootstrap a workspace for your project:**
+   ```bash
+   ~/claude-workflow-toolkit/scripts/bootstrap-workspace.sh \
+       ~/workspaces/myproject \
+       --source ~/myproject
    ```
 
-3. Review the generated workspace
-4. Start using skills from the workspace directory:
+3. **Start an agent with proper context:**
    ```bash
-   cd ~/workspaces/myproject1
-   /check-reviews
+   cd ~/workspaces/myproject
+   claude -c "read CLAUDE.md then /check-workflow"
    ```
+
+The agent will see the workflow rules, current status, and available commands.
+
+#### Keeping Up to Date
+
+After pulling toolkit updates:
+```bash
+cd ~/workspaces/myproject
+/sync-skills
+```
+
+Or manually:
+```bash
+~/claude-workflow-toolkit/scripts/install-skill.sh --all --target ~/workspaces/myproject --update
+```
+
+## Agent Priming
+
+To ensure agents follow the PR-based workflow correctly, start them with context:
+
+### Recommended Startup Command
+
+```bash
+cd ~/workspaces/myproject
+claude -c "read CLAUDE.md then /check-workflow"
+```
+
+This ensures the agent:
+1. **Reads workflow rules** - Including "NEVER push to main"
+2. **Sees workspace status** - Outdated skills, pending reviews, available issues
+3. **Knows entry points** - `/check-reviews`, `/claim-issue`, `/sync-skills`
+
+### Alternative: Autonomous Worker
+
+For fully autonomous operation:
+
+```bash
+claude -c "/worker --once"
+```
+
+The worker will:
+1. Check for PRs needing attention
+2. Find and claim an `agent-ready` issue
+3. Wait for you to implement
+4. Run quality gates and submit PR
+
+### Why Priming Matters
+
+Without priming, agents may:
+- Push directly to main (bypassing PR review)
+- Miss the workflow skills entirely
+- Not know about the review-first policy
+
+The `CLAUDE.md` file and `/check-workflow` command together provide complete context.
 
 ## Installation Modes
 
@@ -220,6 +273,7 @@ claude-workflow-toolkit/
 │
 ├── templates/
 │   ├── WORKSPACE.md.template   # Workspace documentation (workspace mode)
+│   ├── CLAUDE.md.template      # Agent instructions (installed to project root)
 │   │
 │   ├── skills/                 # Workflow skill templates
 │   │   ├── check-reviews.sh.template     # Review detection
@@ -228,6 +282,7 @@ claude-workflow-toolkit/
 │   │   ├── check-workflow.sh.template    # Workflow validation
 │   │   ├── submit-pr.sh.template         # PR submission
 │   │   ├── worker.sh.template            # Autonomous development loop
+│   │   ├── sync-skills.sh.template       # Update skills from toolkit
 │   │   └── README.md.template
 │   │
 │   ├── .claude/
@@ -266,12 +321,72 @@ claude-workflow-toolkit/
 │   └── applied/               # Example generated output
 │
 └── scripts/
+    ├── bootstrap-workspace.sh    # Single-command workspace setup
+    ├── install-skill.sh          # Install/update individual skills
+    ├── validate-toolkit.sh       # Check workspace health
     ├── setup-labels.sh           # Create required GitHub labels
     ├── validate-templates.sh     # Template syntax validator
     └── migrate-to-workspace.sh   # Convert embedded to workspace mode
 ```
 
 ## Setup Scripts
+
+### `scripts/bootstrap-workspace.sh`
+
+**Single-command workspace setup** - the recommended way to set up a new project:
+
+```bash
+./scripts/bootstrap-workspace.sh ~/workspaces/myproject --source ~/myproject
+```
+
+What it does:
+1. Creates workspace directory structure
+2. Installs all skills from the default profile
+3. Installs `CLAUDE.md` with workflow rules
+4. Creates `workspace-config` pointing to target project
+5. Sets up `.codex/skills` symlink for dual-agent support
+6. Prints the agent priming command
+
+Options:
+- `--source <path>` - Target project path (required)
+- `--profile <name>` - Profile to use (default: default)
+- `--repo <owner/name>` - Explicit repo (auto-detected if not provided)
+- `--dry-run` - Show what would be done
+
+### `scripts/install-skill.sh`
+
+Install or update individual skills:
+
+```bash
+# Install a single skill
+./scripts/install-skill.sh worker --target ~/workspaces/myproject
+
+# Install all skills from profile
+./scripts/install-skill.sh --all --target ~/workspaces/myproject
+
+# Update existing skills
+./scripts/install-skill.sh --all --target ~/workspaces/myproject --update
+
+# Include CLAUDE.md
+./scripts/install-skill.sh --all --with-claude-md --target ~/workspaces/myproject
+
+# List available skills
+./scripts/install-skill.sh --list
+```
+
+### `scripts/validate-toolkit.sh`
+
+Check workspace health and find outdated skills:
+
+```bash
+./scripts/validate-toolkit.sh --target ~/workspaces/myproject
+```
+
+Reports:
+- Missing or outdated skills
+- Unreplaced `{{PLACEHOLDER}}` patterns
+- Missing GitHub labels
+- Workspace configuration issues
 
 ### `scripts/setup-labels.sh`
 
