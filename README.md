@@ -242,6 +242,50 @@ ln -s ../.claude/skills .codex/skills  # adjust if you customize SKILLS_DIR
 
 **Result: 60-80% reduction in GitHub API usage**
 
+## Telemetry
+
+Track skill usage patterns to understand workflow efficiency:
+
+```bash
+# Initialize telemetry
+/telemetry-init
+
+# Use skills normally - invocations logged automatically
+/check-reviews
+/claim-issue 42
+/submit-pr
+
+# View usage report
+/telemetry-report
+```
+
+### Sample Report Output
+
+```
+========================================
+Skill Usage Report
+========================================
+Period: Last 7 days vs Previous 7 days
+
+Rank  Skill              This  Prev  Change  Trend
+----  -----              ----  ----  ------  -----
+1     check-reviews        47    38    +24%    ↑
+2     worker               35    42    -17%    ↓
+3     claim-issue          28    28     0%     →
+
+Sessions: 23 (was 19, +21%)
+Avg skills/session: 6.2 (was 5.4)
+```
+
+### Key Features
+
+- **Zero token overhead** - Operates at bash layer, invisible to AI
+- **Period comparison** - Current vs previous period with trend indicators
+- **Session correlation** - Track skill usage within sessions
+- **Graceful degradation** - Skills work normally without telemetry
+
+See [Telemetry Documentation](./docs/TELEMETRY.md) for details.
+
 ## Template Variables
 
 All templates use `{{VARIABLE}}` syntax for placeholders:
