@@ -1,0 +1,128 @@
+---
+name: telemetry-report
+description: Generate usage report from telemetry invocation logs
+version: 1.0.0
+---
+
+# /telemetry-report
+
+Generate usage reports from telemetry invocation logs to understand skill usage patterns.
+
+## Usage
+
+```bash
+/telemetry-report              # Default 30-day report
+/telemetry-report --period 7d  # Last 7 days only
+/telemetry-report --json       # Machine-readable output
+/telemetry-report --verbose    # Include session breakdown
+```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--period <n>d` | Filter to last N days (default: 30d) |
+| `--json` | Output as JSON for scripting |
+| `--verbose`, `-v` | Show detailed session breakdown |
+| `--project <path>` | Target project path |
+| `--help`, `-h` | Show help |
+
+## Output
+
+### Default (Human-Readable)
+
+```
+========================================
+Skill Usage Report
+========================================
+Period: Last 30 days (142 invocations)
+
+Rank  Skill                 Count  Success  Failed  Last Used
+----  -----                 -----  -------  ------  ---------
+1     check-reviews            47       47       0  2026-02-03
+2     worker                   35       33       2  2026-02-03
+3     claim-issue              28       28       0  2026-02-03
+4     submit-pr                22       20       2  2026-02-03
+5     sync-skills              10       10       0  2026-02-02
+
+Sessions: 23 unique
+Avg skills/session: 6.2
+
+Failed invocations: 4 (2.8%)
+```
+
+### JSON Output
+
+```json
+{
+  "period_days": 30,
+  "total_invocations": 142,
+  "total_success": 138,
+  "total_failed": 4,
+  "total_duration_ms": 284000,
+  "sessions": 23,
+  "avg_skills_per_session": 6.2,
+  "skills": {
+    "check-reviews": {"count": 47, "success": 47, "failed": 0, "duration_ms": 9400, "last": "2026-02-03T14:23:45Z"},
+    "worker": {"count": 35, "success": 33, "failed": 2, "duration_ms": 70000, "last": "2026-02-03T14:45:00Z"}
+  }
+}
+```
+
+## Log Format
+
+The report reads from `.claude/telemetry/invocations.log` with format:
+
+```
+{timestamp}|{session_id}|{skill}|{exit_code}|{duration_ms}
+```
+
+Example:
+```
+2026-02-03T14:23:45Z|1706972625-12345|check-reviews|0|1423
+2026-02-03T14:24:12Z|1706972625-12345|claim-issue|0|892
+```
+
+## Use Cases
+
+### Weekly Review
+```bash
+/telemetry-report --period 7d
+```
+
+### Find Unused Skills
+Look for skills with zero invocations or not in the list.
+
+### Identify Problematic Skills
+Check for high failure rates in the Failed column.
+
+### Pipeline Integration
+```bash
+/telemetry-report --json | jq '.skills | to_entries | sort_by(.value.count) | reverse'
+```
+
+## Requirements
+
+- Telemetry must be enabled (skills source `lib/telemetry.sh`)
+- Log file must exist at `.claude/telemetry/invocations.log`
+
+## Related Skills
+
+| Skill | Relationship |
+|-------|--------------|
+| `telemetry-aggregate` | Aggregates logs into JSON tally (Phase 2) |
+| `telemetry-init` | Enables telemetry for a project (Phase 3) |
+
+## Troubleshooting
+
+### "No telemetry data found"
+
+Telemetry is not yet enabled. Skills need to source `lib/telemetry.sh`.
+
+### Empty report
+
+The log file exists but has no entries. Skills have not been invoked since telemetry was enabled.
+
+### Parsing errors
+
+Check log file format. Each line should have exactly 5 pipe-separated fields.
