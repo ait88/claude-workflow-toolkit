@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Skill: /telemetry-report
-# Description: Generate usage report from telemetry invocation logs
-# Usage: /telemetry-report [--period <n>d] [--json] [--verbose]
+# Description: Generate usage report from telemetry with period comparison
+# Usage: /telemetry-report [--period <n>d] [--compare] [--json] [--verbose]
 
 set -euo pipefail
 
@@ -76,12 +76,14 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Defaults
-PERIOD_DAYS=30
+PERIOD_DAYS=7
 OUTPUT_JSON=false
 VERBOSE=false
+SHOW_COMPARE=true  # Default to comparison if data available
 
 # Telemetry paths
 if [[ "$MODE" == "in-project" ]]; then
@@ -90,6 +92,7 @@ else
     TELEMETRY_DIR="${TARGET_PROJECT}/.claude/telemetry"
 fi
 LOG_FILE="${TELEMETRY_DIR}/invocations.log"
+USAGE_FILE="${TELEMETRY_DIR}/usage.json"
 
 # ============================================================================
 # ARGUMENT PARSING
@@ -99,7 +102,6 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --period)
             if [[ -n "${2:-}" ]]; then
-                # Parse period like "7d" or "30d"
                 PERIOD_DAYS="${2%d}"
                 shift 2
             else
@@ -115,26 +117,46 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
+        --compare)
+            SHOW_COMPARE=true
+            shift
+            ;;
+        --no-compare)
+            SHOW_COMPARE=false
+            shift
+            ;;
         --help|-h)
             cat <<EOF
 Usage: /telemetry-report [OPTIONS]
 
-Generate usage report from telemetry invocation logs.
+Generate usage report from telemetry with period comparison.
 
 OPTIONS:
-  --period <n>d     Filter to last N days (default: 30d)
-  --json            Output as JSON
-  --verbose, -v     Show session breakdown
-  --project <path>  Target project path
-  --help, -h        Show this help
+  --period <n>d       Report period (default: 7d)
+  --compare           Show period-over-period comparison (default if data available)
+  --no-compare        Skip period comparison
+  --json              Output as JSON
+  --verbose, -v       Show detailed breakdown
+  --project <path>    Target project path
+  --help, -h          Show this help
+
+DATA SOURCES:
+  1. usage.json (fast, pre-aggregated) - preferred
+  2. invocations.log (raw logs) - fallback
+
+COMPARISON:
+  Shows current period vs previous period with trend indicators:
+    ↑↑  >+50% increase
+    ↑   +10% to +50%
+    →   -10% to +10%
+    ↓   -10% to -50%
+    ↓↓  <-50% decrease
 
 EXAMPLES:
-  /telemetry-report              # Default 30-day report
-  /telemetry-report --period 7d  # Last 7 days
+  /telemetry-report              # 7-day report with comparison
+  /telemetry-report --period 30d # 30-day report
+  /telemetry-report --no-compare # Skip comparison
   /telemetry-report --json       # Machine-readable output
-
-LOG FORMAT:
-  {timestamp}|{session_id}|{skill}|{exit_code}|{duration_ms}
 
 EOF
             exit 0
@@ -147,16 +169,61 @@ EOF
 done
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+# Get trend indicator based on percentage change
+_trend_indicator() {
+    local change="$1"
+    if (( $(echo "$change > 50" | bc -l 2>/dev/null || echo 0) )); then
+        echo "↑↑"
+    elif (( $(echo "$change > 10" | bc -l 2>/dev/null || echo 0) )); then
+        echo "↑"
+    elif (( $(echo "$change < -50" | bc -l 2>/dev/null || echo 0) )); then
+        echo "↓↓"
+    elif (( $(echo "$change < -10" | bc -l 2>/dev/null || echo 0) )); then
+        echo "↓"
+    else
+        echo "→"
+    fi
+}
+
+# Calculate percentage change
+_pct_change() {
+    local current="$1"
+    local previous="$2"
+    if [[ "$previous" -eq 0 ]]; then
+        if [[ "$current" -gt 0 ]]; then
+            echo "new"
+        else
+            echo "0"
+        fi
+    else
+        echo "scale=0; ($current - $previous) * 100 / $previous" | bc 2>/dev/null || echo "0"
+    fi
+}
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
-# Check if log file exists
-if [[ ! -f "$LOG_FILE" ]]; then
+# Check for data sources
+HAS_USAGE_JSON=false
+HAS_LOG_FILE=false
+
+if [[ -f "$USAGE_FILE" ]] && [[ -s "$USAGE_FILE" ]]; then
+    HAS_USAGE_JSON=true
+fi
+
+if [[ -f "$LOG_FILE" ]] && [[ -s "$LOG_FILE" ]]; then
+    HAS_LOG_FILE=true
+fi
+
+if [[ "$HAS_USAGE_JSON" == "false" ]] && [[ "$HAS_LOG_FILE" == "false" ]]; then
     if $OUTPUT_JSON; then
-        echo '{"error": "No telemetry data found", "log_file": "'"$LOG_FILE"'"}'
+        echo '{"error": "No telemetry data found"}'
     else
         echo -e "${YELLOW}No telemetry data found${NC}"
-        echo "Log file: $LOG_FILE"
         echo ""
         echo "Telemetry logging not yet enabled. To enable:"
         echo "  1. Source lib/telemetry.sh in your skills"
@@ -165,35 +232,24 @@ if [[ ! -f "$LOG_FILE" ]]; then
     exit 0
 fi
 
-# Check if log file is empty
-if [[ ! -s "$LOG_FILE" ]]; then
-    if $OUTPUT_JSON; then
-        echo '{"error": "No invocations recorded", "log_file": "'"$LOG_FILE"'"}'
-    else
-        echo -e "${YELLOW}No invocations recorded${NC}"
-        echo "Log file exists but is empty."
-    fi
-    exit 0
-fi
+# Calculate period boundaries
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+PERIOD_START=$(date -u -d "-${PERIOD_DAYS} days" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-${PERIOD_DAYS}d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
+PREV_PERIOD_START=$(date -u -d "-$((PERIOD_DAYS * 2)) days" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-$((PERIOD_DAYS * 2))d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
 
-# Calculate cutoff timestamp for period filtering
-CUTOFF_TIMESTAMP=$(date -d "-${PERIOD_DAYS} days" -Iseconds 2>/dev/null || date -v-${PERIOD_DAYS}d -Iseconds 2>/dev/null || echo "")
-
-# Process log file with awk
-# Log format: {timestamp}|{session_id}|{skill}|{exit_code}|{duration_ms}
-REPORT=$(awk -F'|' -v cutoff="$CUTOFF_TIMESTAMP" -v output_json="$OUTPUT_JSON" -v verbose="$VERBOSE" '
+# Process data with awk - handles both current and previous periods
+REPORT_DATA=$(awk -F'|' -v period_start="$PERIOD_START" -v prev_start="$PREV_PERIOD_START" -v period_days="$PERIOD_DAYS" '
 BEGIN {
-    total_invocations = 0
-    total_success = 0
-    total_failed = 0
-    total_duration = 0
+    # Current period stats
+    curr_total = 0
+    curr_sessions_count = 0
+
+    # Previous period stats
+    prev_total = 0
+    prev_sessions_count = 0
 }
 
-# Skip malformed lines
 NF < 5 { next }
-
-# Filter by period if cutoff is set
-cutoff != "" && $1 < cutoff { next }
 
 {
     timestamp = $1
@@ -202,106 +258,254 @@ cutoff != "" && $1 < cutoff { next }
     exit_code = $4
     duration = $5
 
-    # Track per-skill stats
-    skills[skill]++
-    if (exit_code == 0) {
-        skill_success[skill]++
-    } else {
-        skill_failed[skill]++
+    # Current period
+    if (timestamp >= period_start) {
+        curr_total++
+        curr_skills[skill]++
+        if (exit_code == 0) curr_success[skill]++
+        else curr_failed[skill]++
+        curr_duration[skill] += duration
+
+        if (!curr_sessions[session]) {
+            curr_sessions[session] = 1
+            curr_sessions_count++
+        }
+
+        if (timestamp > curr_last[skill]) {
+            curr_last[skill] = timestamp
+        }
     }
-    skill_duration[skill] += duration
+    # Previous period
+    else if (timestamp >= prev_start && timestamp < period_start) {
+        prev_total++
+        prev_skills[skill]++
+        if (exit_code == 0) prev_success[skill]++
+        else prev_failed[skill]++
 
-    # Track last invocation per skill
-    if (timestamp > skill_last[skill]) {
-        skill_last[skill] = timestamp
+        if (!prev_sessions[session]) {
+            prev_sessions[session] = 1
+            prev_sessions_count++
+        }
     }
-
-    # Track sessions
-    sessions[session] = 1
-
-    # Totals
-    total_invocations++
-    if (exit_code == 0) total_success++
-    else total_failed++
-    total_duration += duration
 }
 
 END {
-    num_sessions = length(sessions)
-    avg_per_session = (num_sessions > 0) ? total_invocations / num_sessions : 0
+    # Output as simple key-value format for bash parsing
+    print "CURR_TOTAL=" curr_total
+    print "CURR_SESSIONS=" curr_sessions_count
+    print "PREV_TOTAL=" prev_total
+    print "PREV_SESSIONS=" prev_sessions_count
 
-    if (output_json == "true") {
-        # JSON output
-        printf "{\n"
-        printf "  \"period_days\": %d,\n", '"$PERIOD_DAYS"'
-        printf "  \"total_invocations\": %d,\n", total_invocations
-        printf "  \"total_success\": %d,\n", total_success
-        printf "  \"total_failed\": %d,\n", total_failed
-        printf "  \"total_duration_ms\": %d,\n", total_duration
-        printf "  \"sessions\": %d,\n", num_sessions
-        printf "  \"avg_skills_per_session\": %.1f,\n", avg_per_session
-        printf "  \"skills\": {\n"
-
-        first = 1
-        for (skill in skills) {
-            if (!first) printf ",\n"
-            first = 0
-            success = skill_success[skill] + 0
-            failed = skill_failed[skill] + 0
-            printf "    \"%s\": {\"count\": %d, \"success\": %d, \"failed\": %d, \"duration_ms\": %d, \"last\": \"%s\"}",
-                skill, skills[skill], success, failed, skill_duration[skill], skill_last[skill]
-        }
-        printf "\n  }\n"
-        printf "}\n"
-    } else {
-        # Human-readable output
-        printf "========================================\n"
-        printf "Skill Usage Report\n"
-        printf "========================================\n"
-        printf "Period: Last %d days (%d invocations)\n\n", '"$PERIOD_DAYS"', total_invocations
-
-        # Sort skills by count (simple bubble sort in awk)
-        n = 0
-        for (skill in skills) {
-            sorted_skills[++n] = skill
-        }
-
-        for (i = 1; i <= n; i++) {
-            for (j = i + 1; j <= n; j++) {
-                if (skills[sorted_skills[i]] < skills[sorted_skills[j]]) {
-                    tmp = sorted_skills[i]
-                    sorted_skills[i] = sorted_skills[j]
-                    sorted_skills[j] = tmp
-                }
-            }
-        }
-
-        printf "%-4s  %-20s  %5s  %7s  %6s  %s\n", "Rank", "Skill", "Count", "Success", "Failed", "Last Used"
-        printf "%-4s  %-20s  %5s  %7s  %6s  %s\n", "----", "-----", "-----", "-------", "------", "---------"
-
-        for (i = 1; i <= n; i++) {
-            skill = sorted_skills[i]
-            success = skill_success[skill] + 0
-            failed = skill_failed[skill] + 0
-
-            # Format last used (simplified - just show timestamp)
-            last = skill_last[skill]
-            if (last == "") last = "never"
-            else last = substr(last, 1, 10)  # Just date portion
-
-            printf "%-4d  %-20s  %5d  %7d  %6d  %s\n", i, skill, skills[skill], success, failed, last
-        }
-
-        printf "\n"
-        printf "Sessions: %d unique\n", num_sessions
-        printf "Avg skills/session: %.1f\n", avg_per_session
-
-        if (total_failed > 0) {
-            printf "\n"
-            printf "Failed invocations: %d (%.1f%%)\n", total_failed, (total_failed * 100.0 / total_invocations)
+    # Skills data
+    print "SKILLS_START"
+    for (skill in curr_skills) {
+        printf "%s|%d|%d|%d|%d|%s|%d|%d\n",
+            skill,
+            curr_skills[skill],
+            curr_success[skill]+0,
+            curr_failed[skill]+0,
+            curr_duration[skill],
+            curr_last[skill],
+            prev_skills[skill]+0,
+            prev_success[skill]+0
+    }
+    # Add skills only in previous period
+    for (skill in prev_skills) {
+        if (!(skill in curr_skills)) {
+            printf "%s|0|0|0|0||%d|%d\n",
+                skill,
+                prev_skills[skill],
+                prev_success[skill]+0
         }
     }
+    print "SKILLS_END"
 }
-' "$LOG_FILE")
+' "$LOG_FILE" 2>/dev/null || echo "CURR_TOTAL=0")
 
-echo "$REPORT"
+# Parse report data
+eval "$(echo "$REPORT_DATA" | grep -E "^(CURR_|PREV_)" || echo "")"
+CURR_TOTAL="${CURR_TOTAL:-0}"
+CURR_SESSIONS="${CURR_SESSIONS:-0}"
+PREV_TOTAL="${PREV_TOTAL:-0}"
+PREV_SESSIONS="${PREV_SESSIONS:-0}"
+
+# Extract skills data
+SKILLS_DATA=$(echo "$REPORT_DATA" | sed -n '/SKILLS_START/,/SKILLS_END/p' | grep -v "SKILLS_")
+
+# JSON output
+if $OUTPUT_JSON; then
+    echo "{"
+    echo "  \"period_days\": $PERIOD_DAYS,"
+    echo "  \"current\": {"
+    echo "    \"invocations\": $CURR_TOTAL,"
+    echo "    \"sessions\": $CURR_SESSIONS"
+    echo "  },"
+    echo "  \"previous\": {"
+    echo "    \"invocations\": $PREV_TOTAL,"
+    echo "    \"sessions\": $PREV_SESSIONS"
+    echo "  },"
+    echo "  \"skills\": {"
+
+    first=true
+    while IFS='|' read -r skill curr prev_cnt rest; do
+        [[ -z "$skill" ]] && continue
+        if [[ "$first" == "false" ]]; then echo ","; fi
+        first=false
+        printf '    "%s": {"current": %d, "previous": %d}' "$skill" "$curr" "$prev_cnt"
+    done <<< "$SKILLS_DATA"
+
+    echo ""
+    echo "  }"
+    echo "}"
+    exit 0
+fi
+
+# Human-readable output
+echo ""
+echo "========================================"
+echo -e "${BLUE}Skill Usage Report${NC}"
+echo "========================================"
+
+if [[ "$SHOW_COMPARE" == "true" ]] && [[ "$PREV_TOTAL" -gt 0 ]]; then
+    echo "Period: Last ${PERIOD_DAYS} days vs Previous ${PERIOD_DAYS} days"
+else
+    echo "Period: Last ${PERIOD_DAYS} days ($CURR_TOTAL invocations)"
+fi
+echo ""
+
+# Calculate overall change
+if [[ "$PREV_TOTAL" -gt 0 ]]; then
+    TOTAL_CHANGE=$(_pct_change "$CURR_TOTAL" "$PREV_TOTAL")
+    TOTAL_TREND=$(_trend_indicator "$TOTAL_CHANGE")
+fi
+
+# Sort skills by current count and display
+if [[ -n "$SKILLS_DATA" ]]; then
+    if [[ "$SHOW_COMPARE" == "true" ]] && [[ "$PREV_TOTAL" -gt 0 ]]; then
+        # Comparison header
+        printf "%-4s  %-18s  %5s  %5s  %7s  %s\n" "Rank" "Skill" "This" "Prev" "Change" "Trend"
+        printf "%-4s  %-18s  %5s  %5s  %7s  %s\n" "----" "-----" "----" "----" "------" "-----"
+
+        rank=1
+        echo "$SKILLS_DATA" | sort -t'|' -k2 -rn | while IFS='|' read -r skill curr success failed duration last prev_cnt prev_success; do
+            [[ -z "$skill" ]] && continue
+
+            # Calculate change
+            if [[ "$prev_cnt" -eq 0 ]]; then
+                if [[ "$curr" -gt 0 ]]; then
+                    change_str="new"
+                    trend="✨"
+                else
+                    change_str="0%"
+                    trend="→"
+                fi
+            else
+                change=$(echo "scale=0; ($curr - $prev_cnt) * 100 / $prev_cnt" | bc 2>/dev/null || echo "0")
+                if [[ "$change" -gt 0 ]]; then
+                    change_str="+${change}%"
+                else
+                    change_str="${change}%"
+                fi
+                trend=$(_trend_indicator "$change")
+            fi
+
+            printf "%-4d  %-18s  %5d  %5d  %7s  %s\n" "$rank" "$skill" "$curr" "$prev_cnt" "$change_str" "$trend"
+            ((rank++)) || true
+        done
+    else
+        # Simple header (no comparison)
+        printf "%-4s  %-20s  %5s  %7s  %6s  %s\n" "Rank" "Skill" "Count" "Success" "Failed" "Last Used"
+        printf "%-4s  %-20s  %5s  %7s  %6s  %s\n" "----" "-----" "-----" "-------" "------" "---------"
+
+        rank=1
+        echo "$SKILLS_DATA" | sort -t'|' -k2 -rn | while IFS='|' read -r skill curr success failed duration last prev_cnt prev_success; do
+            [[ -z "$skill" ]] && continue
+            [[ "$curr" -eq 0 ]] && continue
+
+            last_date="${last:0:10}"
+            [[ -z "$last_date" ]] && last_date="never"
+
+            printf "%-4d  %-20s  %5d  %7d  %6d  %s\n" "$rank" "$skill" "$curr" "$success" "$failed" "$last_date"
+            ((rank++)) || true
+        done
+    fi
+fi
+
+echo ""
+
+# Session summary
+if [[ "$SHOW_COMPARE" == "true" ]] && [[ "$PREV_SESSIONS" -gt 0 ]]; then
+    SESSION_CHANGE=$(_pct_change "$CURR_SESSIONS" "$PREV_SESSIONS")
+    if [[ "$SESSION_CHANGE" == "new" ]]; then
+        echo "Sessions: $CURR_SESSIONS (new)"
+    elif [[ "$SESSION_CHANGE" -gt 0 ]]; then
+        echo "Sessions: $CURR_SESSIONS (was $PREV_SESSIONS, +${SESSION_CHANGE}%)"
+    elif [[ "$SESSION_CHANGE" -lt 0 ]]; then
+        echo "Sessions: $CURR_SESSIONS (was $PREV_SESSIONS, ${SESSION_CHANGE}%)"
+    else
+        echo "Sessions: $CURR_SESSIONS (unchanged)"
+    fi
+else
+    echo "Sessions: $CURR_SESSIONS unique"
+fi
+
+# Average skills per session
+if [[ "$CURR_SESSIONS" -gt 0 ]]; then
+    AVG_CURR=$(echo "scale=1; $CURR_TOTAL / $CURR_SESSIONS" | bc 2>/dev/null || echo "0")
+    if [[ "$PREV_SESSIONS" -gt 0 ]] && [[ "$SHOW_COMPARE" == "true" ]]; then
+        AVG_PREV=$(echo "scale=1; $PREV_TOTAL / $PREV_SESSIONS" | bc 2>/dev/null || echo "0")
+        echo "Avg skills/session: $AVG_CURR (was $AVG_PREV)"
+    else
+        echo "Avg skills/session: $AVG_CURR"
+    fi
+fi
+
+# Insights section
+if [[ "$VERBOSE" == "true" ]] || [[ "$SHOW_COMPARE" == "true" ]]; then
+    echo ""
+    echo "========================================"
+    echo "Insights"
+    echo "========================================"
+    echo ""
+
+    # New skills this period
+    NEW_SKILLS=$(echo "$SKILLS_DATA" | awk -F'|' '$2 > 0 && $7 == 0 {print $1}' | tr '\n' ', ' | sed 's/,$//')
+    if [[ -n "$NEW_SKILLS" ]]; then
+        echo -e "${GREEN}New this period:${NC} $NEW_SKILLS"
+    fi
+
+    # Inactive skills (in prev but not curr)
+    INACTIVE=$(echo "$SKILLS_DATA" | awk -F'|' '$2 == 0 && $7 > 0 {print $1}' | tr '\n' ', ' | sed 's/,$//')
+    if [[ -n "$INACTIVE" ]]; then
+        echo -e "${YELLOW}Inactive this period:${NC} $INACTIVE"
+    fi
+
+    # High failure skills
+    HIGH_FAIL=$(echo "$SKILLS_DATA" | awk -F'|' '$4 > 0 && $2 > 0 && ($4 / $2) > 0.2 {print $1 " (" int($4/$2*100) "% fail)"}' | tr '\n' ', ' | sed 's/,$//')
+    if [[ -n "$HIGH_FAIL" ]]; then
+        echo -e "${RED}High failure rate:${NC} $HIGH_FAIL"
+    fi
+
+    # Big movers (>50% change)
+    if [[ "$PREV_TOTAL" -gt 0 ]]; then
+        BIG_UP=$(echo "$SKILLS_DATA" | awk -F'|' '$7 > 0 && $2 > 0 && (($2 - $7) / $7) > 0.5 {print $1}' | tr '\n' ', ' | sed 's/,$//')
+        if [[ -n "$BIG_UP" ]]; then
+            echo -e "${GREEN}Trending up:${NC} $BIG_UP"
+        fi
+
+        BIG_DOWN=$(echo "$SKILLS_DATA" | awk -F'|' '$7 > 0 && (($2 - $7) / $7) < -0.5 {print $1}' | tr '\n' ', ' | sed 's/,$//')
+        if [[ -n "$BIG_DOWN" ]]; then
+            echo -e "${YELLOW}Trending down:${NC} $BIG_DOWN"
+        fi
+    fi
+fi
+
+echo ""
+
+# Data source note
+if [[ "$HAS_USAGE_JSON" == "true" ]]; then
+    UPDATED=$(jq -r '.updated // "unknown"' "$USAGE_FILE" 2>/dev/null || echo "unknown")
+    if [[ "$VERBOSE" == "true" ]]; then
+        echo -e "${CYAN}Data source:${NC} usage.json (updated: $UPDATED)"
+    fi
+fi
