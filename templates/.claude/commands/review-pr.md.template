@@ -1,0 +1,163 @@
+---
+name: review-pr
+description: Critically review a pull request and provide feedback
+version: 1.0.0
+---
+
+# /review-pr
+
+Critically review a pull request, displaying a structured checklist and PR details to guide thorough code review.
+
+## Usage
+
+```bash
+/review-pr <pr-number>                    # Review without action
+/review-pr <pr-number> --approve          # Review and approve
+/review-pr <pr-number> --request-changes  # Review and request changes
+/review-pr <pr-number> --approve --add-label ready-to-merge
+```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--approve`, `-a` | Submit approving review |
+| `--request-changes`, `-x` | Submit review requesting changes |
+| `--comment`, `-c` | Submit review as comment only |
+| `--add-label <label>` | Add label after review |
+| `--verbose`, `-v` | Show detailed output |
+| `--project <path>` | Target project path |
+| `--repo <owner/name>` | Target repository |
+
+## What It Does
+
+1. **Fetches PR metadata** - Title, author, branch, changes, reviews
+2. **Shows files changed** - List of modified files
+3. **Displays review checklist** - Structured areas to review
+4. **Shows diff preview** - First 100 lines of changes
+5. **Optionally submits review** - Approve, request changes, or comment
+
+## Review Checklist
+
+The skill guides you through reviewing:
+
+### 1. Runtime Stability
+- Exception and error handling
+- Null/undefined checks
+- Resource cleanup
+
+### 2. Performance
+- N+1 query patterns
+- Algorithm efficiency
+- Memory usage
+
+### 3. Security
+- Input validation
+- Injection vulnerabilities (SQL, XSS)
+- Authentication/authorization
+- Secrets exposure
+
+### 4. Test Coverage
+- Unit tests for new logic
+- Integration tests
+- Edge cases
+
+### 5. Code Quality
+- Project patterns followed
+- Clear naming and docs
+- No dead code or debug statements
+
+### 6. Breaking Changes
+- API compatibility
+- Database migrations
+- Configuration changes
+
+## Workflow Integration
+
+### Standard Review Flow
+
+```bash
+# 1. See PRs needing review
+/check-reviews
+
+# 2. Review a specific PR
+/review-pr 42
+
+# 3. After reviewing, approve or request changes
+/review-pr 42 --approve --add-label ready-to-merge
+```
+
+### Ready-to-Merge Label
+
+PRs that pass review can be tagged for merge:
+
+```bash
+/review-pr 42 --approve --add-label ready-to-merge
+```
+
+This enables workflows where approved PRs are automatically merged or flagged for maintainer merge.
+
+## Examples
+
+### View PR for Review
+```bash
+/review-pr 42
+```
+
+Output includes:
+- PR summary (title, author, changes)
+- Files changed
+- Review checklist
+- Diff preview
+- PR description
+
+### Approve PR
+```bash
+/review-pr 42 --approve
+```
+
+Submits an approving review. You'll be prompted for an optional comment.
+
+### Request Changes
+```bash
+/review-pr 42 --request-changes
+```
+
+Requires a comment explaining what changes are needed.
+
+### Approve and Tag Ready
+```bash
+/review-pr 42 --approve --add-label ready-to-merge
+```
+
+Approves and adds label in one command.
+
+## Requirements
+
+- `gh` - GitHub CLI, authenticated
+- `jq` - JSON processor
+
+## Related Skills
+
+| Skill | Relationship |
+|-------|--------------|
+| `/check-reviews` | Find PRs needing review |
+| `/address-review` | Address feedback on your PRs |
+| `/submit-pr` | Create PRs for review |
+
+## Tips
+
+### For Thorough Reviews
+
+1. **Read the PR description first** - Understand intent
+2. **Check the test plan** - Are tests adequate?
+3. **Review file by file** - Use `gh pr diff` for full diff
+4. **Consider edge cases** - What could go wrong?
+5. **Check for security issues** - Especially with user input
+
+### Review Comment Best Practices
+
+- Be specific and actionable
+- Suggest solutions, not just problems
+- Distinguish blocking issues from nits
+- Acknowledge good patterns you see
