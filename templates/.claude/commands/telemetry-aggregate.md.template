@@ -1,0 +1,210 @@
+---
+name: telemetry-aggregate
+description: Aggregate raw invocation logs into JSON tally format
+version: 1.0.0
+---
+
+# /telemetry-aggregate
+
+Aggregate raw invocation logs into the persistent JSON tally format (usage.json).
+
+## Usage
+
+```bash
+/telemetry-aggregate              # Incremental update
+/telemetry-aggregate --full       # Full rebuild from all logs
+/telemetry-aggregate --dry-run    # Preview without writing
+```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--full`, `-f` | Rebuild from all logs (ignore cursor) |
+| `--dry-run`, `-n` | Preview changes without writing |
+| `--verbose`, `-v` | Show processing details |
+| `--project <path>` | Target project path |
+
+## What It Does
+
+1. **Reads** raw invocation logs from `.claude/telemetry/invocations.log`
+2. **Aggregates** into per-skill statistics and session metrics
+3. **Writes** structured JSON to `.claude/telemetry/usage.json`
+4. **Tracks** cursor position for incremental updates
+
+## Modes
+
+### Incremental (default)
+
+Only processes log entries since the last aggregation:
+
+```bash
+/telemetry-aggregate
+```
+
+- Reads `log_cursor` from existing usage.json
+- Processes only new entries
+- Merges with existing aggregations
+- Updates cursor to latest timestamp
+
+### Full Rebuild
+
+Reprocesses all log entries from scratch:
+
+```bash
+/telemetry-aggregate --full
+```
+
+Use when:
+- usage.json is corrupted
+- Schema has changed
+- You want fresh aggregation
+
+## Output Format
+
+The skill produces `usage.json` with:
+
+```json
+{
+  "version": "1.0",
+  "skills": {
+    "check-reviews": {
+      "invocations": 47,
+      "successes": 47,
+      "failures": 0,
+      "total_duration_ms": 66580,
+      "avg_duration_ms": 1416,
+      "last_invoked": "2026-02-03T14:23:45Z",
+      "first_invoked": "2026-01-15T09:12:00Z",
+      "sessions": 23
+    }
+  },
+  "sessions": {
+    "total": 47,
+    "skill_invocations": 132,
+    "avg_skills_per_session": 2.8
+  },
+  "periods": {
+    "last_7d": { "invocations": 45, "sessions": 12 },
+    "last_30d": { "invocations": 132, "sessions": 47 }
+  },
+  "updated": "2026-02-03T14:45:00Z",
+  "log_cursor": "2026-02-03T14:45:00Z"
+}
+```
+
+## Workflow
+
+### Regular Usage
+
+Run periodically to keep usage.json updated:
+
+```bash
+# After a work session
+/telemetry-aggregate
+
+# View the report
+/telemetry-report
+```
+
+### After Log Rotation
+
+If you rotate/archive logs, rebuild aggregation:
+
+```bash
+/telemetry-aggregate --full
+```
+
+### Debugging
+
+Preview what would be aggregated:
+
+```bash
+/telemetry-aggregate --dry-run --verbose
+```
+
+## Examples
+
+### Initial Aggregation
+
+First run creates usage.json:
+
+```bash
+$ /telemetry-aggregate
+
+========================================
+Telemetry Aggregation
+========================================
+
+Mode: Initial aggregation
+
+Entries to process: 142
+
+========================================
+Summary
+========================================
+
+Skills tracked:      8
+Total invocations:  142
+Total sessions:     47
+New cursor:         2026-02-03T14:45:00Z
+
+Aggregation complete
+Output: .claude/telemetry/usage.json
+```
+
+### Incremental Update
+
+Subsequent runs are fast:
+
+```bash
+$ /telemetry-aggregate
+
+========================================
+Telemetry Aggregation
+========================================
+
+Mode: Incremental (from cursor)
+Cursor: 2026-02-03T14:45:00Z
+
+Entries to process: 5
+
+========================================
+Summary
+========================================
+
+Skills tracked:      8
+Total invocations:  147
+Total sessions:     48
+New cursor:         2026-02-03T15:30:00Z
+
+Aggregation complete
+```
+
+### Already Up to Date
+
+```bash
+$ /telemetry-aggregate
+
+========================================
+Telemetry Aggregation
+========================================
+
+Mode: Incremental (from cursor)
+Cursor: 2026-02-03T15:30:00Z
+
+Already up to date
+No new entries to process.
+```
+
+## Requirements
+
+- `jq` - JSON processor
+- Telemetry logging enabled (invocations.log exists)
+
+## Related Skills
+
+| Skill | Relationship |
+|-------|--------------|
+| `/telemetry-report` | Read and display aggregated data |
+| `lib/telemetry.sh` | Generate invocation logs |
