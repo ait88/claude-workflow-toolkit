@@ -54,6 +54,22 @@ _detect_mode() {
 _detect_mode
 
 # ============================================================================
+# TELEMETRY
+# ============================================================================
+
+_init_telemetry() {
+    local telemetry_lib="${SCRIPT_DIR}/../../lib/telemetry.sh"
+    if [[ -f "$telemetry_lib" ]]; then
+        # shellcheck source=/dev/null
+        source "$telemetry_lib"
+        telemetry_start "$(basename "$0")"
+        return 0
+    fi
+    return 1
+}
+_init_telemetry 2>/dev/null || true
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
