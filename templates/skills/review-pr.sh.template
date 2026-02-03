@@ -1,0 +1,407 @@
+#!/usr/bin/env bash
+# Skill: /review-pr
+# Description: Critically review a PR and optionally approve/request changes
+# Usage: /review-pr <pr-number> [--approve] [--request-changes] [--comment]
+
+set -euo pipefail
+
+# ============================================================================
+# WORKSPACE/PROJECT MODE DETECTION
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARGET_PROJECT=""
+TARGET_REPO_OWNER=""
+TARGET_REPO_NAME=""
+MODE=""
+REMAINING_ARGS=()
+
+_parse_project_flag() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project|-p)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_PROJECT="$2"
+                    shift 2
+                else
+                    echo "Error: --project requires a path argument"
+                    exit 1
+                fi
+                ;;
+            --repo|-r)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_REPO_OWNER="${2%%/*}"
+                    TARGET_REPO_NAME="${2##*/}"
+                    shift 2
+                else
+                    echo "Error: --repo requires owner/name argument"
+                    exit 1
+                fi
+                ;;
+            *)
+                REMAINING_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+_load_workspace_config() {
+    local config_file="${SCRIPT_DIR}/../workspace-config"
+    if [[ -f "$config_file" ]]; then
+        # shellcheck source=/dev/null
+        source "$config_file"
+        TARGET_PROJECT="${TARGET_PROJECT_PATH:-}"
+        TARGET_REPO_OWNER="${TARGET_REPO_OWNER:-}"
+        TARGET_REPO_NAME="${TARGET_REPO_NAME:-}"
+        return 0
+    fi
+    return 1
+}
+
+_detect_mode() {
+    if [[ -n "$TARGET_PROJECT" ]] || [[ -n "$TARGET_REPO_OWNER" ]]; then
+        MODE="explicit"
+        return
+    fi
+    if _load_workspace_config; then
+        MODE="workspace"
+        return
+    fi
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        TARGET_PROJECT="$(pwd)"
+        MODE="in-project"
+        return
+    fi
+    echo "Error: Not in a git repository and no workspace config found."
+    exit 1
+}
+
+_get_repo_info() {
+    if [[ -n "$TARGET_REPO_OWNER" ]] && [[ -n "$TARGET_REPO_NAME" ]]; then
+        OWNER="$TARGET_REPO_OWNER"
+        REPO="$TARGET_REPO_NAME"
+    else
+        local repo_info
+        if [[ -n "$TARGET_PROJECT" ]] && [[ "$MODE" != "in-project" ]]; then
+            repo_info=$(cd "$TARGET_PROJECT" && gh repo view --json owner,name)
+        else
+            repo_info=$(gh repo view --json owner,name)
+        fi
+        OWNER=$(echo "$repo_info" | jq -r '.owner.login')
+        REPO=$(echo "$repo_info" | jq -r '.name')
+    fi
+}
+
+_parse_project_flag "$@"
+set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
+_detect_mode
+_get_repo_info
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Review action
+ACTION=""
+PR_NUMBER=""
+VERBOSE=false
+
+# ============================================================================
+# ARGUMENT PARSING
+# ============================================================================
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --approve|-a)
+            ACTION="approve"
+            shift
+            ;;
+        --request-changes|-x)
+            ACTION="request-changes"
+            shift
+            ;;
+        --comment|-c)
+            ACTION="comment"
+            shift
+            ;;
+        --add-label)
+            ADD_LABEL="${2:-}"
+            shift 2
+            ;;
+        --verbose|-v)
+            VERBOSE=true
+            shift
+            ;;
+        --help|-h)
+            cat <<EOF
+Usage: /review-pr <pr-number> [OPTIONS]
+
+Critically review a pull request and provide feedback.
+
+ARGUMENTS:
+  <pr-number>           PR number to review
+
+OPTIONS:
+  --approve, -a         Submit approving review
+  --request-changes, -x Submit review requesting changes
+  --comment, -c         Submit review as comment only
+  --add-label <label>   Add label after review (e.g., ready-to-merge)
+  --verbose, -v         Show detailed output
+  --project <path>      Target project path
+  --repo <owner/name>   Target repository
+  --help, -h            Show this help
+
+WORKFLOW:
+  1. Fetch PR metadata and diff
+  2. Display review checklist
+  3. Show files changed with summary
+  4. Agent performs review
+  5. Optionally submit review action
+
+EXAMPLES:
+  /review-pr 42                     # Review PR #42
+  /review-pr 42 --approve           # Review and approve
+  /review-pr 42 --request-changes   # Review and request changes
+  /review-pr 42 --approve --add-label ready-to-merge
+
+REVIEW CHECKLIST:
+  - Runtime stability (exceptions, null checks)
+  - Performance (N+1 queries, inefficient algorithms)
+  - Security (injection, XSS, auth issues)
+  - Test coverage (unit, integration, edge cases)
+  - Code style and patterns
+  - Documentation updates
+
+EOF
+            exit 0
+            ;;
+        [0-9]*)
+            PR_NUMBER="$1"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "$PR_NUMBER" ]]; then
+    echo -e "${RED}Error: PR number required${NC}"
+    echo "Usage: /review-pr <pr-number> [--approve|--request-changes|--comment]"
+    exit 1
+fi
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+echo ""
+echo "========================================"
+echo -e "${BLUE}PR Review: #${PR_NUMBER}${NC}"
+echo "========================================"
+echo ""
+
+# Fetch PR data
+echo -e "${CYAN}Fetching PR data...${NC}"
+PR_DATA=$(gh pr view "$PR_NUMBER" --repo "$OWNER/$REPO" --json title,body,author,state,baseRefName,headRefName,additions,deletions,changedFiles,commits,reviews,labels,mergeable,isDraft)
+
+if [[ -z "$PR_DATA" ]]; then
+    echo -e "${RED}Error: Could not fetch PR #${PR_NUMBER}${NC}"
+    exit 1
+fi
+
+# Parse PR metadata
+TITLE=$(echo "$PR_DATA" | jq -r '.title')
+AUTHOR=$(echo "$PR_DATA" | jq -r '.author.login')
+STATE=$(echo "$PR_DATA" | jq -r '.state')
+BASE=$(echo "$PR_DATA" | jq -r '.baseRefName')
+HEAD=$(echo "$PR_DATA" | jq -r '.headRefName')
+ADDITIONS=$(echo "$PR_DATA" | jq -r '.additions')
+DELETIONS=$(echo "$PR_DATA" | jq -r '.deletions')
+CHANGED_FILES=$(echo "$PR_DATA" | jq -r '.changedFiles')
+COMMITS=$(echo "$PR_DATA" | jq -r '.commits | length')
+IS_DRAFT=$(echo "$PR_DATA" | jq -r '.isDraft')
+MERGEABLE=$(echo "$PR_DATA" | jq -r '.mergeable')
+EXISTING_REVIEWS=$(echo "$PR_DATA" | jq -r '.reviews | length')
+LABELS=$(echo "$PR_DATA" | jq -r '.labels[].name' | tr '\n' ', ' | sed 's/,$//')
+
+# Display PR summary
+echo -e "${BLUE}Title:${NC}    $TITLE"
+echo -e "${BLUE}Author:${NC}   $AUTHOR"
+echo -e "${BLUE}State:${NC}    $STATE"
+echo -e "${BLUE}Branch:${NC}   $HEAD → $BASE"
+echo -e "${BLUE}Changes:${NC}  +$ADDITIONS / -$DELETIONS in $CHANGED_FILES file(s)"
+echo -e "${BLUE}Commits:${NC}  $COMMITS"
+echo -e "${BLUE}Labels:${NC}   ${LABELS:-none}"
+echo -e "${BLUE}Reviews:${NC}  $EXISTING_REVIEWS existing"
+
+if [[ "$IS_DRAFT" == "true" ]]; then
+    echo -e "${YELLOW}Status:${NC}   DRAFT"
+fi
+
+if [[ "$MERGEABLE" == "CONFLICTING" ]]; then
+    echo -e "${RED}Mergeable:${NC} CONFLICTS - needs rebase"
+elif [[ "$MERGEABLE" == "MERGEABLE" ]]; then
+    echo -e "${GREEN}Mergeable:${NC} Yes"
+fi
+
+echo ""
+echo "========================================"
+echo "Files Changed"
+echo "========================================"
+echo ""
+
+# Get list of changed files
+gh pr diff "$PR_NUMBER" --repo "$OWNER/$REPO" --name-only 2>/dev/null | head -30
+
+TOTAL_FILES=$(gh pr diff "$PR_NUMBER" --repo "$OWNER/$REPO" --name-only 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$TOTAL_FILES" -gt 30 ]]; then
+    echo "... and $((TOTAL_FILES - 30)) more files"
+fi
+
+echo ""
+echo "========================================"
+echo "Review Checklist"
+echo "========================================"
+echo ""
+echo "Review the following areas:"
+echo ""
+echo -e "  ${CYAN}1. Runtime Stability${NC}"
+echo "     - Potential exceptions and error handling"
+echo "     - Null/undefined checks"
+echo "     - Resource cleanup (files, connections)"
+echo ""
+echo -e "  ${CYAN}2. Performance${NC}"
+echo "     - N+1 query patterns"
+echo "     - Inefficient algorithms (O(n²) when O(n) possible)"
+echo "     - Memory usage and leaks"
+echo ""
+echo -e "  ${CYAN}3. Security${NC}"
+echo "     - Input validation and sanitization"
+echo "     - SQL/command injection"
+echo "     - XSS vulnerabilities"
+echo "     - Authentication/authorization"
+echo "     - Secrets exposure"
+echo ""
+echo -e "  ${CYAN}4. Test Coverage${NC}"
+echo "     - Unit tests for new logic"
+echo "     - Integration tests for API changes"
+echo "     - Edge cases covered"
+echo ""
+echo -e "  ${CYAN}5. Code Quality${NC}"
+echo "     - Follows project patterns"
+echo "     - Clear naming and documentation"
+echo "     - No dead code or debug statements"
+echo ""
+echo -e "  ${CYAN}6. Breaking Changes${NC}"
+echo "     - API compatibility"
+echo "     - Database migrations"
+echo "     - Configuration changes"
+echo ""
+
+# Show diff summary
+echo "========================================"
+echo "Diff Preview"
+echo "========================================"
+echo ""
+echo "Showing first 100 lines of diff..."
+echo "Use 'gh pr diff $PR_NUMBER --repo $OWNER/$REPO' for full diff"
+echo ""
+gh pr diff "$PR_NUMBER" --repo "$OWNER/$REPO" 2>/dev/null | head -100
+echo ""
+echo "... (truncated)"
+echo ""
+
+# PR Body (description)
+BODY=$(echo "$PR_DATA" | jq -r '.body // "No description provided"')
+if [[ -n "$BODY" && "$BODY" != "null" ]]; then
+    echo "========================================"
+    echo "PR Description"
+    echo "========================================"
+    echo ""
+    echo "$BODY" | head -50
+    echo ""
+fi
+
+# Review action
+if [[ -n "$ACTION" ]]; then
+    echo "========================================"
+    echo "Submit Review"
+    echo "========================================"
+    echo ""
+
+    case "$ACTION" in
+        approve)
+            echo -e "${GREEN}Submitting APPROVAL...${NC}"
+            echo ""
+            echo "Enter review comment (or press Enter for default):"
+            read -r REVIEW_COMMENT
+            REVIEW_COMMENT="${REVIEW_COMMENT:-Looks good to me! Approved.}"
+
+            gh pr review "$PR_NUMBER" --repo "$OWNER/$REPO" --approve --body "$REVIEW_COMMENT"
+            echo -e "${GREEN}Review submitted: APPROVED${NC}"
+            ;;
+        request-changes)
+            echo -e "${YELLOW}Submitting REQUEST CHANGES...${NC}"
+            echo ""
+            echo "Enter required changes (required):"
+            read -r REVIEW_COMMENT
+            if [[ -z "$REVIEW_COMMENT" ]]; then
+                echo -e "${RED}Error: Comment required for change requests${NC}"
+                exit 1
+            fi
+
+            gh pr review "$PR_NUMBER" --repo "$OWNER/$REPO" --request-changes --body "$REVIEW_COMMENT"
+            echo -e "${YELLOW}Review submitted: CHANGES REQUESTED${NC}"
+            ;;
+        comment)
+            echo -e "${BLUE}Submitting COMMENT...${NC}"
+            echo ""
+            echo "Enter review comment:"
+            read -r REVIEW_COMMENT
+            if [[ -z "$REVIEW_COMMENT" ]]; then
+                echo -e "${RED}Error: Comment required${NC}"
+                exit 1
+            fi
+
+            gh pr review "$PR_NUMBER" --repo "$OWNER/$REPO" --comment --body "$REVIEW_COMMENT"
+            echo -e "${BLUE}Review submitted: COMMENT${NC}"
+            ;;
+    esac
+
+    # Add label if specified
+    if [[ -n "${ADD_LABEL:-}" ]]; then
+        echo ""
+        echo -e "Adding label: ${BLUE}$ADD_LABEL${NC}"
+        gh pr edit "$PR_NUMBER" --repo "$OWNER/$REPO" --add-label "$ADD_LABEL"
+    fi
+else
+    echo "========================================"
+    echo "Next Steps"
+    echo "========================================"
+    echo ""
+    echo "After reviewing the code, submit your review:"
+    echo ""
+    echo -e "  ${GREEN}/review-pr $PR_NUMBER --approve${NC}"
+    echo "     Submit approving review"
+    echo ""
+    echo -e "  ${YELLOW}/review-pr $PR_NUMBER --request-changes${NC}"
+    echo "     Request changes before merge"
+    echo ""
+    echo -e "  ${BLUE}/review-pr $PR_NUMBER --comment${NC}"
+    echo "     Add comment without approval decision"
+    echo ""
+    echo "To approve and mark ready to merge:"
+    echo -e "  ${GREEN}/review-pr $PR_NUMBER --approve --add-label ready-to-merge${NC}"
+    echo ""
+fi
