@@ -1,29 +1,33 @@
 ---
 name: review-pr
 description: Critically review a pull request and provide feedback
-version: 1.0.0
+version: 1.1.0
 ---
 
 # /review-pr
 
-Critically review a pull request, displaying a structured checklist and PR details to guide thorough code review.
+Critically review a pull request, displaying a structured checklist, CI status, and PR details to guide thorough code review. Automatically detects if you're the PR author and suggests appropriate actions.
 
 ## Usage
 
 ```bash
 /review-pr <pr-number>                    # Review without action
-/review-pr <pr-number> --approve          # Review and approve
-/review-pr <pr-number> --request-changes  # Review and request changes
-/review-pr <pr-number> --approve --add-label ready-to-merge
+/review-pr <pr-number> --approve          # Review and approve (reviewers)
+/review-pr <pr-number> --merge            # Merge the PR (authors)
+/review-pr <pr-number> --checks           # Show detailed CI status
+/review-pr --pending                      # List PRs needing your review
 ```
 
 ## Options
 
 | Option | Description |
 |--------|-------------|
-| `--approve`, `-a` | Submit approving review |
+| `--approve`, `-a` | Submit approving review (reviewers only) |
 | `--request-changes`, `-x` | Submit review requesting changes |
 | `--comment`, `-c` | Submit review as comment only |
+| `--merge`, `-m` | Merge the PR (authors, or after approval) |
+| `--checks` | Show detailed CI/check status |
+| `--pending` | List all PRs needing your review |
 | `--add-label <label>` | Add label after review |
 | `--verbose`, `-v` | Show detailed output |
 | `--project <path>` | Target project path |
@@ -31,11 +35,75 @@ Critically review a pull request, displaying a structured checklist and PR detai
 
 ## What It Does
 
-1. **Fetches PR metadata** - Title, author, branch, changes, reviews
-2. **Shows files changed** - List of modified files
-3. **Displays review checklist** - Structured areas to review
-4. **Shows diff preview** - First 100 lines of changes
-5. **Optionally submits review** - Approve, request changes, or comment
+1. **Detects your role** - Author vs reviewer (smart action suggestions)
+2. **Fetches PR metadata** - Title, author, branch, changes, reviews
+3. **Shows CI/check status** - Pass/fail/pending with summary
+4. **Shows files changed** - List of modified files
+5. **Displays review checklist** - Structured areas to review
+6. **Shows diff preview** - First 100 lines of changes
+7. **Submits action** - Approve, request changes, comment, or merge
+
+## Author Detection
+
+The skill detects if you're the PR author and adjusts available actions:
+
+**If you're the author:**
+- `--approve` is blocked (can't self-approve)
+- `--merge` is available (squash and delete branch)
+- Shows merge readiness based on review status
+
+**If you're a reviewer:**
+- `--approve`, `--request-changes`, `--comment` available
+- `--merge` still available if you have permissions
+
+## CI/Check Status
+
+The skill shows CI status in the PR summary:
+
+```
+Checks:   ✓ All 5 checks passed
+Checks:   ○ 2 pending, 3 passed
+Checks:   ✗ 1 failed, 4 passed, 1 pending
+```
+
+Use `--checks` for detailed breakdown:
+
+```bash
+/review-pr 42 --checks
+```
+
+Output:
+```
+CI/Check Details
+========================================
+
+  ✓ build
+  ✓ test
+  ✗ lint
+  ○ deploy (pending)
+```
+
+## Pending Mode
+
+List all PRs needing your review (excludes your own PRs):
+
+```bash
+/review-pr --pending
+```
+
+Output:
+```
+PRs Needing Review
+========================================
+
+  #42: Add authentication feature
+      Author: teammate | Status: PENDING | Checks: ✓
+  #45: Fix database connection
+      Author: contributor | Status: PENDING | Checks: ○
+
+Review a specific PR:
+  /review-pr <number>
+```
 
 ## Review Checklist
 
@@ -74,28 +142,31 @@ The skill guides you through reviewing:
 
 ## Workflow Integration
 
-### Standard Review Flow
+### As a Reviewer
 
 ```bash
-# 1. See PRs needing review
-/check-reviews
+# 1. Find PRs needing review
+/review-pr --pending
 
 # 2. Review a specific PR
 /review-pr 42
 
-# 3. After reviewing, approve or request changes
+# 3. Check CI status if needed
+/review-pr 42 --checks
+
+# 4. Approve or request changes
 /review-pr 42 --approve --add-label ready-to-merge
 ```
 
-### Ready-to-Merge Label
-
-PRs that pass review can be tagged for merge:
+### As a PR Author
 
 ```bash
-/review-pr 42 --approve --add-label ready-to-merge
-```
+# 1. Check your PR status
+/review-pr 42
 
-This enables workflows where approved PRs are automatically merged or flagged for maintainer merge.
+# 2. After approval, merge
+/review-pr 42 --merge
+```
 
 ## Examples
 
@@ -106,31 +177,28 @@ This enables workflows where approved PRs are automatically merged or flagged fo
 
 Output includes:
 - PR summary (title, author, changes)
+- CI/check status (pass/fail/pending)
+- Your role indicator (author/reviewer)
 - Files changed
 - Review checklist
 - Diff preview
-- PR description
+- Context-aware next steps
 
-### Approve PR
+### Merge Your PR (Authors)
+```bash
+/review-pr 42 --merge
+```
+
+Merges using squash strategy and deletes the branch. Warns if:
+- CI checks failed or pending
+- Merge conflicts exist
+
+### Approve PR (Reviewers)
 ```bash
 /review-pr 42 --approve
 ```
 
-Submits an approving review. You'll be prompted for an optional comment.
-
-### Request Changes
-```bash
-/review-pr 42 --request-changes
-```
-
-Requires a comment explaining what changes are needed.
-
-### Approve and Tag Ready
-```bash
-/review-pr 42 --approve --add-label ready-to-merge
-```
-
-Approves and adds label in one command.
+Submits an approving review. Blocked if you're the author.
 
 ## Requirements
 
@@ -150,7 +218,7 @@ Approves and adds label in one command.
 ### For Thorough Reviews
 
 1. **Read the PR description first** - Understand intent
-2. **Check the test plan** - Are tests adequate?
+2. **Check CI status** - Use `--checks` for details
 3. **Review file by file** - Use `gh pr diff` for full diff
 4. **Consider edge cases** - What could go wrong?
 5. **Check for security issues** - Especially with user input
