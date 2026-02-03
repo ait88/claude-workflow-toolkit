@@ -83,15 +83,19 @@ NC='\033[0m'
 FULL_REBUILD=false
 DRY_RUN=false
 VERBOSE=false
+IMPORT_WORKER=false
 
 # Paths
 if [[ "$MODE" == "in-project" ]]; then
     TELEMETRY_DIR=".claude/telemetry"
+    WORKER_DIR=".claude/worker"
 else
     TELEMETRY_DIR="${TARGET_PROJECT}/.claude/telemetry"
+    WORKER_DIR="${TARGET_PROJECT}/.claude/worker"
 fi
 LOG_FILE="${TELEMETRY_DIR}/invocations.log"
 USAGE_FILE="${TELEMETRY_DIR}/usage.json"
+WORKER_HISTORY="${WORKER_DIR}/history.log"
 
 # ============================================================================
 # ARGUMENT PARSING
@@ -111,6 +115,10 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
+        --import-worker)
+            IMPORT_WORKER=true
+            shift
+            ;;
         --help|-h)
             cat <<EOF
 Usage: /telemetry-aggregate [OPTIONS]
@@ -118,11 +126,12 @@ Usage: /telemetry-aggregate [OPTIONS]
 Aggregate raw invocation logs into JSON tally format (usage.json).
 
 OPTIONS:
-  --full, -f        Full rebuild from all logs (ignore cursor)
-  --dry-run, -n     Preview changes without writing
-  --verbose, -v     Show processing details
-  --project <path>  Target project path
-  --help, -h        Show this help
+  --full, -f          Full rebuild from all logs (ignore cursor)
+  --dry-run, -n       Preview changes without writing
+  --verbose, -v       Show processing details
+  --import-worker     Import historical worker events as skill invocations
+  --project <path>    Target project path
+  --help, -h          Show this help
 
 MODES:
   Incremental (default):  Process only new log entries since last run
@@ -132,10 +141,16 @@ FILES:
   Input:  .claude/telemetry/invocations.log
   Output: .claude/telemetry/usage.json
 
+WORKER IMPORT:
+  Parses .claude/worker/history.log and maps events to skill invocations:
+    COMPLETED    -> submit-pr (success)
+    CLAIM_FAILED -> claim-issue (failure)
+
 EXAMPLES:
   /telemetry-aggregate              # Incremental update
   /telemetry-aggregate --full       # Full rebuild
   /telemetry-aggregate --dry-run    # Preview changes
+  /telemetry-aggregate --import-worker  # Import worker history
 
 EOF
             exit 0
@@ -381,6 +396,88 @@ _merge_usage() {
 }
 
 # ============================================================================
+# WORKER HISTORY IMPORT
+# ============================================================================
+
+# Import worker history events into telemetry log format
+# Worker history format: {timestamp} | {STATUS} | #{issue} | {message}
+# Maps: COMPLETED -> submit-pr, CLAIM_FAILED -> claim-issue
+_import_worker_history() {
+    local history_file="$1"
+    local output_file="$2"
+
+    if [[ ! -f "$history_file" ]]; then
+        echo -e "${YELLOW}No worker history found${NC}"
+        echo "File: $history_file"
+        return 1
+    fi
+
+    echo -e "${CYAN}Importing worker history...${NC}"
+
+    local imported=0
+    local skipped=0
+
+    # Parse worker history and convert to telemetry format
+    while IFS='|' read -r timestamp status issue_ref message; do
+        # Clean up fields (remove whitespace)
+        timestamp=$(echo "$timestamp" | xargs)
+        status=$(echo "$status" | xargs)
+        issue_ref=$(echo "$issue_ref" | xargs)
+
+        # Skip if timestamp is empty or malformed
+        [[ -z "$timestamp" ]] && continue
+
+        # Convert timestamp to ISO 8601 UTC if needed
+        # Worker uses: 2026-02-03T14:23:45+00:00
+        # Telemetry uses: 2026-02-03T14:23:45Z
+        local iso_timestamp
+        iso_timestamp=$(echo "$timestamp" | sed 's/+00:00$/Z/' | sed 's/+[0-9][0-9]:[0-9][0-9]$/Z/')
+
+        # Generate a synthetic session ID from timestamp
+        local session_id="worker-import-$(echo "$timestamp" | sed 's/[^0-9]//g' | cut -c1-10)"
+
+        # Map status to skill and exit code
+        local skill=""
+        local exit_code=0
+
+        case "$status" in
+            COMPLETED)
+                skill="submit-pr"
+                exit_code=0
+                ;;
+            CLAIM_FAILED)
+                skill="claim-issue"
+                exit_code=1
+                ;;
+            PR_SUBMITTED)
+                skill="submit-pr"
+                exit_code=0
+                ;;
+            *)
+                # Skip unmappable events
+                ((skipped++)) || true
+                continue
+                ;;
+        esac
+
+        # Estimate duration (not available in worker history, use 0)
+        local duration_ms=0
+
+        # Write to log file
+        echo "${iso_timestamp}|${session_id}|${skill}|${exit_code}|${duration_ms}" >> "$output_file"
+        ((imported++)) || true
+
+    done < "$history_file"
+
+    echo -e "${GREEN}Imported:${NC} $imported events"
+    if [[ "$skipped" -gt 0 ]]; then
+        echo -e "${YELLOW}Skipped:${NC}  $skipped unmappable events"
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -390,12 +487,35 @@ echo -e "${BLUE}Telemetry Aggregation${NC}"
 echo "========================================"
 echo ""
 
+# Handle worker import mode
+if [[ "$IMPORT_WORKER" == "true" ]]; then
+    echo -e "${CYAN}Mode:${NC} Worker history import"
+    echo ""
+
+    # Ensure telemetry directory exists
+    mkdir -p "$TELEMETRY_DIR"
+
+    if _import_worker_history "$WORKER_HISTORY" "$LOG_FILE"; then
+        echo ""
+        echo -e "${GREEN}Worker history imported to telemetry log${NC}"
+        echo "Run /telemetry-aggregate again to process imported entries."
+    fi
+    exit 0
+fi
+
 # Check if log file exists
 if [[ ! -f "$LOG_FILE" ]]; then
     echo -e "${YELLOW}No invocation log found${NC}"
     echo "Log file: $LOG_FILE"
     echo ""
     echo "Telemetry logging not yet enabled."
+
+    # Check if worker history exists as alternative
+    if [[ -f "$WORKER_HISTORY" ]]; then
+        echo ""
+        echo "Worker history found at: $WORKER_HISTORY"
+        echo "Run with --import-worker to import historical data."
+    fi
     exit 0
 fi
 

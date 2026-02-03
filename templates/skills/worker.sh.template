@@ -928,6 +928,39 @@ fi
 _detect_mode
 _get_repo_info
 
+# ============================================================================
+# TELEMETRY INTEGRATION
+# ============================================================================
+
+# Source telemetry library if available
+_init_telemetry() {
+    local telemetry_lib
+
+    # Try workspace lib location first
+    if [[ -n "${TOOLKIT_SOURCE:-}" ]]; then
+        telemetry_lib="${TOOLKIT_SOURCE}/lib/telemetry.sh"
+    else
+        # Try relative to script (embedded installation)
+        telemetry_lib="${SCRIPT_DIR}/../../lib/telemetry.sh"
+    fi
+
+    # Expand tilde if present
+    telemetry_lib="${telemetry_lib/#\~/$HOME}"
+
+    if [[ -f "$telemetry_lib" ]]; then
+        # shellcheck source=/dev/null
+        source "$telemetry_lib"
+        # Use worker-specific session format
+        telemetry_worker_session > /dev/null 2>&1 || true
+        telemetry_start "worker"
+        return 0
+    fi
+    return 1
+}
+
+# Initialize telemetry (silent fail if not available)
+_init_telemetry 2>/dev/null || true
+
 # Set up worker paths (needed for status and reset)
 WORKER_DIR="${SCRIPT_DIR}/../worker"
 LOCK_FILE="${WORKER_DIR}/worker.lock"
