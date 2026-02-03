@@ -431,11 +431,11 @@ The migration script:
 ```bash
 # Did anyone review my PRs? Manual checking...
 gh pr list --state open
-gh pr view 42 --comments
+gh pr view 42 --json reviews,comments
 # Easy to miss reviews and start new work prematurely
 
 # Claiming an issue - 4 separate commands
-gh issue view 35
+gh issue view 35 --json title,body,labels
 gh issue edit 35 --remove-label "agent-ready"
 gh issue edit 35 --add-label "in-progress"
 git checkout -b 35-feature-name

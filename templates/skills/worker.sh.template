@@ -774,7 +774,7 @@ _worker_loop() {
                 echo "Issue #$current_issue is claimed but no implementation yet."
                 echo ""
                 echo "Implement the solution, then run /worker again."
-                echo "  View issue: gh issue view $current_issue --repo $OWNER/$REPO"
+                echo "  View issue: gh issue view $current_issue --repo $OWNER/$REPO --web"
                 return 0
             fi
         else
