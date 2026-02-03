@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Skill: /review-pr
-# Description: Critically review a PR and optionally approve/request changes
-# Usage: /review-pr <pr-number> [--approve] [--request-changes] [--comment]
+# Description: Critically review a PR and optionally approve/request changes/merge
+# Usage: /review-pr <pr-number> [--approve] [--request-changes] [--merge] [--pending]
 
 set -euo pipefail
 
@@ -114,6 +114,9 @@ NC='\033[0m'
 ACTION=""
 PR_NUMBER=""
 VERBOSE=false
+SHOW_CHECKS=false
+SHOW_PENDING=false
+CURRENT_USER=""
 
 # ============================================================================
 # ARGUMENT PARSING
@@ -133,6 +136,18 @@ while [[ $# -gt 0 ]]; do
             ACTION="comment"
             shift
             ;;
+        --merge|-m)
+            ACTION="merge"
+            shift
+            ;;
+        --checks)
+            SHOW_CHECKS=true
+            shift
+            ;;
+        --pending)
+            SHOW_PENDING=true
+            shift
+            ;;
         --add-label)
             ADD_LABEL="${2:-}"
             shift 2
@@ -144,16 +159,20 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             cat <<EOF
 Usage: /review-pr <pr-number> [OPTIONS]
+       /review-pr --pending
 
 Critically review a pull request and provide feedback.
 
 ARGUMENTS:
-  <pr-number>           PR number to review
+  <pr-number>           PR number to review (optional with --pending)
 
 OPTIONS:
-  --approve, -a         Submit approving review
+  --approve, -a         Submit approving review (reviewers only)
   --request-changes, -x Submit review requesting changes
   --comment, -c         Submit review as comment only
+  --merge, -m           Merge the PR (authors only, or after approval)
+  --checks              Show detailed CI/check status
+  --pending             List all PRs needing review
   --add-label <label>   Add label after review (e.g., ready-to-merge)
   --verbose, -v         Show detailed output
   --project <path>      Target project path
@@ -161,16 +180,19 @@ OPTIONS:
   --help, -h            Show this help
 
 WORKFLOW:
-  1. Fetch PR metadata and diff
-  2. Display review checklist
-  3. Show files changed with summary
-  4. Agent performs review
-  5. Optionally submit review action
+  1. Fetch PR metadata, CI status, and diff
+  2. Detect if you're the author (smart action suggestions)
+  3. Display review checklist
+  4. Show files changed with summary
+  5. Agent performs review
+  6. Submit review action or merge
 
 EXAMPLES:
   /review-pr 42                     # Review PR #42
-  /review-pr 42 --approve           # Review and approve
-  /review-pr 42 --request-changes   # Review and request changes
+  /review-pr 42 --approve           # Review and approve (if not author)
+  /review-pr 42 --merge             # Merge PR (if author or approved)
+  /review-pr 42 --checks            # Show detailed CI status
+  /review-pr --pending              # List PRs needing review
   /review-pr 42 --approve --add-label ready-to-merge
 
 REVIEW CHECKLIST:
@@ -195,9 +217,48 @@ EOF
     esac
 done
 
+# ============================================================================
+# PENDING MODE - List PRs needing review
+# ============================================================================
+
+if [[ "$SHOW_PENDING" == "true" ]]; then
+    echo ""
+    echo "========================================"
+    echo -e "${BLUE}PRs Needing Review${NC}"
+    echo "========================================"
+    echo ""
+
+    # Get current user
+    CURRENT_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
+
+    # List open PRs excluding user's own
+    PENDING_PRS=$(gh pr list --repo "$OWNER/$REPO" --state open --json number,title,author,createdAt,reviewDecision,statusCheckRollup --jq '
+        .[] | select(.author.login != "'"$CURRENT_USER"'") |
+        "  #\(.number): \(.title)\n      Author: \(.author.login) | Status: \(.reviewDecision // "PENDING") | Checks: \(if .statusCheckRollup then (.statusCheckRollup | map(.conclusion) | if all(. == "SUCCESS") then "✓" elif any(. == "FAILURE") then "✗" else "○" end) else "?" end)"
+    ' 2>/dev/null)
+
+    if [[ -z "$PENDING_PRS" ]]; then
+        echo "No PRs needing your review."
+        echo ""
+        echo "Your own PRs (if any):"
+        gh pr list --repo "$OWNER/$REPO" --state open --author "$CURRENT_USER" --json number,title,reviewDecision --jq '
+            .[] | "  #\(.number): \(.title) [\(.reviewDecision // "PENDING")]"
+        ' 2>/dev/null || echo "  None"
+    else
+        echo "$PENDING_PRS"
+    fi
+
+    echo ""
+    echo "Review a specific PR:"
+    echo -e "  ${CYAN}/review-pr <number>${NC}"
+    echo ""
+    exit 0
+fi
+
 if [[ -z "$PR_NUMBER" ]]; then
     echo -e "${RED}Error: PR number required${NC}"
-    echo "Usage: /review-pr <pr-number> [--approve|--request-changes|--comment]"
+    echo "Usage: /review-pr <pr-number> [--approve|--request-changes|--merge]"
+    echo "       /review-pr --pending    # List PRs needing review"
     exit 1
 fi
 
@@ -211,9 +272,12 @@ echo -e "${BLUE}PR Review: #${PR_NUMBER}${NC}"
 echo "========================================"
 echo ""
 
-# Fetch PR data
+# Get current user for author detection
+CURRENT_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
+
+# Fetch PR data with CI status
 echo -e "${CYAN}Fetching PR data...${NC}"
-PR_DATA=$(gh pr view "$PR_NUMBER" --repo "$OWNER/$REPO" --json title,body,author,state,baseRefName,headRefName,additions,deletions,changedFiles,commits,reviews,labels,mergeable,isDraft)
+PR_DATA=$(gh pr view "$PR_NUMBER" --repo "$OWNER/$REPO" --json title,body,author,state,baseRefName,headRefName,additions,deletions,changedFiles,commits,reviews,labels,mergeable,isDraft,statusCheckRollup,reviewDecision)
 
 if [[ -z "$PR_DATA" ]]; then
     echo -e "${RED}Error: Could not fetch PR #${PR_NUMBER}${NC}"
@@ -234,16 +298,46 @@ IS_DRAFT=$(echo "$PR_DATA" | jq -r '.isDraft')
 MERGEABLE=$(echo "$PR_DATA" | jq -r '.mergeable')
 EXISTING_REVIEWS=$(echo "$PR_DATA" | jq -r '.reviews | length')
 LABELS=$(echo "$PR_DATA" | jq -r '.labels[].name' | tr '\n' ', ' | sed 's/,$//')
+REVIEW_DECISION=$(echo "$PR_DATA" | jq -r '.reviewDecision // "PENDING"')
+
+# Detect if current user is the author
+IS_AUTHOR=false
+if [[ "$CURRENT_USER" == "$AUTHOR" ]]; then
+    IS_AUTHOR=true
+fi
+
+# Parse CI/Check status
+CHECKS_TOTAL=$(echo "$PR_DATA" | jq -r '.statusCheckRollup | length')
+CHECKS_SUCCESS=$(echo "$PR_DATA" | jq -r '[.statusCheckRollup[]? | select(.conclusion == "SUCCESS")] | length')
+CHECKS_FAILURE=$(echo "$PR_DATA" | jq -r '[.statusCheckRollup[]? | select(.conclusion == "FAILURE")] | length')
+CHECKS_PENDING=$(echo "$PR_DATA" | jq -r '[.statusCheckRollup[]? | select(.conclusion == null or .conclusion == "PENDING")] | length')
 
 # Display PR summary
 echo -e "${BLUE}Title:${NC}    $TITLE"
-echo -e "${BLUE}Author:${NC}   $AUTHOR"
+if [[ "$IS_AUTHOR" == "true" ]]; then
+    echo -e "${BLUE}Author:${NC}   $AUTHOR ${YELLOW}(you)${NC}"
+else
+    echo -e "${BLUE}Author:${NC}   $AUTHOR"
+fi
 echo -e "${BLUE}State:${NC}    $STATE"
 echo -e "${BLUE}Branch:${NC}   $HEAD → $BASE"
 echo -e "${BLUE}Changes:${NC}  +$ADDITIONS / -$DELETIONS in $CHANGED_FILES file(s)"
 echo -e "${BLUE}Commits:${NC}  $COMMITS"
 echo -e "${BLUE}Labels:${NC}   ${LABELS:-none}"
-echo -e "${BLUE}Reviews:${NC}  $EXISTING_REVIEWS existing"
+echo -e "${BLUE}Reviews:${NC}  $EXISTING_REVIEWS existing ($REVIEW_DECISION)"
+
+# CI/Check status
+if [[ "$CHECKS_TOTAL" -gt 0 ]]; then
+    if [[ "$CHECKS_FAILURE" -gt 0 ]]; then
+        echo -e "${BLUE}Checks:${NC}   ${RED}✗ $CHECKS_FAILURE failed${NC}, $CHECKS_SUCCESS passed, $CHECKS_PENDING pending"
+    elif [[ "$CHECKS_PENDING" -gt 0 ]]; then
+        echo -e "${BLUE}Checks:${NC}   ${YELLOW}○ $CHECKS_PENDING pending${NC}, $CHECKS_SUCCESS passed"
+    else
+        echo -e "${BLUE}Checks:${NC}   ${GREEN}✓ All $CHECKS_SUCCESS checks passed${NC}"
+    fi
+else
+    echo -e "${BLUE}Checks:${NC}   No checks configured"
+fi
 
 if [[ "$IS_DRAFT" == "true" ]]; then
     echo -e "${YELLOW}Status:${NC}   DRAFT"
@@ -253,6 +347,20 @@ if [[ "$MERGEABLE" == "CONFLICTING" ]]; then
     echo -e "${RED}Mergeable:${NC} CONFLICTS - needs rebase"
 elif [[ "$MERGEABLE" == "MERGEABLE" ]]; then
     echo -e "${GREEN}Mergeable:${NC} Yes"
+fi
+
+# Show detailed checks if requested
+if [[ "$SHOW_CHECKS" == "true" && "$CHECKS_TOTAL" -gt 0 ]]; then
+    echo ""
+    echo "========================================"
+    echo "CI/Check Details"
+    echo "========================================"
+    echo ""
+    echo "$PR_DATA" | jq -r '.statusCheckRollup[]? |
+        if .conclusion == "SUCCESS" then "  ✓ \(.name)"
+        elif .conclusion == "FAILURE" then "  ✗ \(.name)"
+        else "  ○ \(.name) (pending)"
+        end'
 fi
 
 echo ""
@@ -342,6 +450,16 @@ if [[ -n "$ACTION" ]]; then
 
     case "$ACTION" in
         approve)
+            # Check if user is author - can't self-approve
+            if [[ "$IS_AUTHOR" == "true" ]]; then
+                echo -e "${RED}Error: Cannot approve your own PR${NC}"
+                echo ""
+                echo "As the PR author, you can:"
+                echo -e "  ${GREEN}/review-pr $PR_NUMBER --merge${NC}  # Merge (if approved/no reviews required)"
+                echo -e "  ${BLUE}/review-pr $PR_NUMBER --comment${NC} # Add a comment"
+                exit 1
+            fi
+
             echo -e "${GREEN}Submitting APPROVAL...${NC}"
             echo ""
             echo "Enter review comment (or press Enter for default):"
@@ -377,6 +495,37 @@ if [[ -n "$ACTION" ]]; then
             gh pr review "$PR_NUMBER" --repo "$OWNER/$REPO" --comment --body "$REVIEW_COMMENT"
             echo -e "${BLUE}Review submitted: COMMENT${NC}"
             ;;
+        merge)
+            # Check CI status before merge
+            if [[ "$CHECKS_FAILURE" -gt 0 ]]; then
+                echo -e "${RED}Warning: $CHECKS_FAILURE check(s) failed${NC}"
+                echo "Are you sure you want to merge? (y/N)"
+                read -r CONFIRM
+                if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+                    echo "Merge cancelled."
+                    exit 0
+                fi
+            fi
+
+            if [[ "$CHECKS_PENDING" -gt 0 ]]; then
+                echo -e "${YELLOW}Warning: $CHECKS_PENDING check(s) still pending${NC}"
+                echo "Are you sure you want to merge? (y/N)"
+                read -r CONFIRM
+                if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+                    echo "Merge cancelled."
+                    exit 0
+                fi
+            fi
+
+            if [[ "$MERGEABLE" == "CONFLICTING" ]]; then
+                echo -e "${RED}Error: PR has merge conflicts. Please rebase first.${NC}"
+                exit 1
+            fi
+
+            echo -e "${GREEN}Merging PR #$PR_NUMBER...${NC}"
+            gh pr merge "$PR_NUMBER" --repo "$OWNER/$REPO" --squash --delete-branch
+            echo -e "${GREEN}PR #$PR_NUMBER merged successfully${NC}"
+            ;;
     esac
 
     # Add label if specified
@@ -390,18 +539,38 @@ else
     echo "Next Steps"
     echo "========================================"
     echo ""
-    echo "After reviewing the code, submit your review:"
-    echo ""
-    echo -e "  ${GREEN}/review-pr $PR_NUMBER --approve${NC}"
-    echo "     Submit approving review"
-    echo ""
-    echo -e "  ${YELLOW}/review-pr $PR_NUMBER --request-changes${NC}"
-    echo "     Request changes before merge"
-    echo ""
-    echo -e "  ${BLUE}/review-pr $PR_NUMBER --comment${NC}"
-    echo "     Add comment without approval decision"
-    echo ""
-    echo "To approve and mark ready to merge:"
-    echo -e "  ${GREEN}/review-pr $PR_NUMBER --approve --add-label ready-to-merge${NC}"
-    echo ""
+
+    if [[ "$IS_AUTHOR" == "true" ]]; then
+        # Author-specific actions
+        echo "You are the author of this PR."
+        echo ""
+        if [[ "$REVIEW_DECISION" == "APPROVED" ]] || [[ "$EXISTING_REVIEWS" -eq 0 ]]; then
+            echo -e "  ${GREEN}/review-pr $PR_NUMBER --merge${NC}"
+            echo "     Merge this PR (squash and delete branch)"
+            echo ""
+        fi
+        echo -e "  ${BLUE}/review-pr $PR_NUMBER --comment${NC}"
+        echo "     Add a comment to the PR"
+        echo ""
+        if [[ "$REVIEW_DECISION" == "CHANGES_REQUESTED" ]]; then
+            echo -e "${YELLOW}Note: Changes have been requested. Address feedback before merging.${NC}"
+            echo ""
+        fi
+    else
+        # Reviewer actions
+        echo "After reviewing the code, submit your review:"
+        echo ""
+        echo -e "  ${GREEN}/review-pr $PR_NUMBER --approve${NC}"
+        echo "     Submit approving review"
+        echo ""
+        echo -e "  ${YELLOW}/review-pr $PR_NUMBER --request-changes${NC}"
+        echo "     Request changes before merge"
+        echo ""
+        echo -e "  ${BLUE}/review-pr $PR_NUMBER --comment${NC}"
+        echo "     Add comment without approval decision"
+        echo ""
+        echo "To approve and mark ready to merge:"
+        echo -e "  ${GREEN}/review-pr $PR_NUMBER --approve --add-label ready-to-merge${NC}"
+        echo ""
+    fi
 fi
