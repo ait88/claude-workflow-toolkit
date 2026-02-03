@@ -205,7 +205,263 @@ Raw logs can be deleted after aggregation. The aggregated usage.json retains the
 |---------|------|---------|
 | 1.0 | 2026-02-03 | Initial specification |
 
+---
+
+# JSON Tally Format Specification (usage.json)
+
+This section defines the aggregated telemetry format that persists metrics between sessions.
+
+## Overview
+
+While `invocations.log` captures raw events, `usage.json` provides:
+- Pre-computed aggregations for fast reporting
+- Persistent metrics across sessions
+- Period-based snapshots (7d, 30d)
+- Incremental update support via cursor
+
+## File Location
+
+```
+.claude/telemetry/usage.json
+```
+
+## Schema (v1.0)
+
+```json
+{
+  "version": "1.0",
+  "skills": {
+    "<skill-name>": {
+      "invocations": 142,
+      "successes": 140,
+      "failures": 2,
+      "total_duration_ms": 28400,
+      "avg_duration_ms": 200,
+      "last_invoked": "2026-02-03T23:14:00Z",
+      "first_invoked": "2026-01-15T10:00:00Z",
+      "sessions": 47
+    }
+  },
+  "sessions": {
+    "total": 89,
+    "skill_invocations": 284,
+    "avg_skills_per_session": 3.2
+  },
+  "periods": {
+    "last_7d": {
+      "invocations": 45,
+      "sessions": 12,
+      "updated": "2026-02-03T00:00:00Z"
+    },
+    "last_30d": {
+      "invocations": 142,
+      "sessions": 47,
+      "updated": "2026-02-03T00:00:00Z"
+    }
+  },
+  "updated": "2026-02-03T23:45:00Z",
+  "log_cursor": "2026-02-03T23:45:00Z"
+}
+```
+
+## Field Definitions
+
+### Root Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | string | Schema version for migrations |
+| `skills` | object | Per-skill aggregated metrics |
+| `sessions` | object | Session-level statistics |
+| `periods` | object | Time-windowed snapshots |
+| `updated` | ISO 8601 | When this file was last modified |
+| `log_cursor` | ISO 8601 | Last processed log entry timestamp |
+
+### Skill Object Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `invocations` | integer | Total times skill was called |
+| `successes` | integer | Invocations with exit_code=0 |
+| `failures` | integer | Invocations with exit_code≠0 |
+| `total_duration_ms` | integer | Sum of all execution times |
+| `avg_duration_ms` | integer | Computed average (total/invocations) |
+| `last_invoked` | ISO 8601 | Most recent invocation timestamp |
+| `first_invoked` | ISO 8601 | First recorded invocation |
+| `sessions` | integer | Unique sessions using this skill |
+
+### Sessions Object Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total` | integer | Unique session count |
+| `skill_invocations` | integer | Total invocations across all skills |
+| `avg_skills_per_session` | float | Average skills used per session |
+
+### Periods Object Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `invocations` | integer | Invocations in time window |
+| `sessions` | integer | Unique sessions in time window |
+| `updated` | ISO 8601 | When this period was last computed |
+
+## Example usage.json
+
+```json
+{
+  "version": "1.0",
+  "skills": {
+    "check-reviews": {
+      "invocations": 47,
+      "successes": 47,
+      "failures": 0,
+      "total_duration_ms": 66580,
+      "avg_duration_ms": 1416,
+      "last_invoked": "2026-02-03T14:23:45Z",
+      "first_invoked": "2026-01-15T09:12:00Z",
+      "sessions": 23
+    },
+    "worker": {
+      "invocations": 35,
+      "successes": 33,
+      "failures": 2,
+      "total_duration_ms": 1750000,
+      "avg_duration_ms": 50000,
+      "last_invoked": "2026-02-03T14:45:00Z",
+      "first_invoked": "2026-01-16T11:30:00Z",
+      "sessions": 18
+    },
+    "claim-issue": {
+      "invocations": 28,
+      "successes": 28,
+      "failures": 0,
+      "total_duration_ms": 25200,
+      "avg_duration_ms": 900,
+      "last_invoked": "2026-02-03T14:24:12Z",
+      "first_invoked": "2026-01-15T09:15:00Z",
+      "sessions": 28
+    },
+    "submit-pr": {
+      "invocations": 22,
+      "successes": 20,
+      "failures": 2,
+      "total_duration_ms": 52800,
+      "avg_duration_ms": 2400,
+      "last_invoked": "2026-02-03T12:30:00Z",
+      "first_invoked": "2026-01-15T14:00:00Z",
+      "sessions": 20
+    }
+  },
+  "sessions": {
+    "total": 47,
+    "skill_invocations": 132,
+    "avg_skills_per_session": 2.8
+  },
+  "periods": {
+    "last_7d": {
+      "invocations": 45,
+      "sessions": 12,
+      "updated": "2026-02-03T00:00:00Z"
+    },
+    "last_30d": {
+      "invocations": 132,
+      "sessions": 47,
+      "updated": "2026-02-03T00:00:00Z"
+    }
+  },
+  "updated": "2026-02-03T14:45:00Z",
+  "log_cursor": "2026-02-03T14:45:00Z"
+}
+```
+
+## Incremental Aggregation
+
+The `log_cursor` field enables efficient incremental updates:
+
+1. Read current `usage.json`
+2. Process only log entries after `log_cursor`
+3. Merge new data into existing aggregations
+4. Update `log_cursor` to latest processed timestamp
+5. Write updated `usage.json`
+
+### Cursor Algorithm
+
+```bash
+# Pseudocode for incremental aggregation
+cursor=$(jq -r '.log_cursor // ""' usage.json)
+
+if [ -n "$cursor" ]; then
+    # Process only new entries
+    awk -F'|' -v cursor="$cursor" '$1 > cursor' invocations.log
+else
+    # Process entire log (first run)
+    cat invocations.log
+fi
+```
+
+## Period Recomputation
+
+Period snapshots (`last_7d`, `last_30d`) are recomputed when:
+- More than 24 hours since last update
+- Explicit refresh requested
+
+This avoids expensive full-log scans on every aggregation.
+
+## Design Decisions
+
+### Why JSON?
+
+- Human-readable for debugging
+- Easy manipulation with `jq`
+- Native support in most languages
+- Suitable for git tracking (meaningful diffs)
+
+### Why Pre-computed Averages?
+
+- Avoids recomputation on every read
+- Enables fast dashboard rendering
+- Acceptable accuracy for metrics use case
+
+### Why Separate from Raw Logs?
+
+- Different access patterns (append vs read/update)
+- Different retention policies (logs rotate, aggregates persist)
+- Different granularity (events vs summaries)
+
+### Why Version Field?
+
+Future schema changes can be handled gracefully:
+- New fields added with defaults
+- Breaking changes detected via version mismatch
+- Migration scripts can transform old formats
+
+## Schema Migrations
+
+### From v1.0 to Future Versions
+
+When `version` changes, the aggregation tool should:
+1. Detect version mismatch
+2. Apply migration transforms
+3. Update version field
+4. Continue with aggregation
+
+## Git Tracking
+
+```gitignore
+# Commit aggregated metrics (useful history)
+!.claude/telemetry/usage.json
+
+# Don't commit raw logs (too noisy)
+.claude/telemetry/invocations.log
+```
+
+Committing `usage.json` provides:
+- Historical usage patterns
+- Trend analysis via git history
+- Shared team insights
+
 ## Related Documentation
 
 - [Telemetry Overview](./TELEMETRY.md) - High-level telemetry guide
-- [JSON Tally Format](#) - Aggregated data specification (Phase 2)
+- [Invocation Log Format](#invocation-log-format) - Raw log specification
