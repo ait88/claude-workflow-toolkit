@@ -1,0 +1,326 @@
+#!/usr/bin/env bash
+# Skill: /telemetry-init
+# Description: Initialize telemetry infrastructure for a project
+# Usage: /telemetry-init [--dry-run] [--force]
+
+set -euo pipefail
+
+# ============================================================================
+# WORKSPACE/PROJECT MODE DETECTION
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARGET_PROJECT=""
+MODE=""
+REMAINING_ARGS=()
+
+_parse_project_flag() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project|-p|--target)
+                if [[ -n "${2:-}" ]]; then
+                    TARGET_PROJECT="$2"
+                    shift 2
+                else
+                    echo "Error: --project requires a path argument"
+                    exit 1
+                fi
+                ;;
+            *)
+                REMAINING_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+_load_workspace_config() {
+    local config_file="${SCRIPT_DIR}/../workspace-config"
+    if [[ -f "$config_file" ]]; then
+        # shellcheck source=/dev/null
+        source "$config_file"
+        TARGET_PROJECT="${TARGET_PROJECT_PATH:-}"
+        return 0
+    fi
+    return 1
+}
+
+_detect_mode() {
+    if [[ -n "$TARGET_PROJECT" ]]; then
+        MODE="explicit"
+        return
+    fi
+    if _load_workspace_config; then
+        MODE="workspace"
+        return
+    fi
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        TARGET_PROJECT="$(pwd)"
+        MODE="in-project"
+        return
+    fi
+    echo "Error: Not in a git repository and no workspace config found."
+    exit 1
+}
+
+_parse_project_flag "$@"
+set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
+_detect_mode
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Options
+DRY_RUN=false
+FORCE=false
+USE_SYMLINKS=false
+
+# Paths
+if [[ "$MODE" == "in-project" ]]; then
+    TELEMETRY_DIR=".claude/telemetry"
+    SKILLS_DIR=".claude/skills"
+else
+    TELEMETRY_DIR="${TARGET_PROJECT}/.claude/telemetry"
+    SKILLS_DIR="${TARGET_PROJECT}/.claude/skills"
+fi
+
+# Find toolkit source
+TOOLKIT_SOURCE="${TOOLKIT_SOURCE:-}"
+if [[ -z "$TOOLKIT_SOURCE" ]]; then
+    # Try to find toolkit from script location
+    local_toolkit="${SCRIPT_DIR}/../../.."
+    if [[ -f "${local_toolkit}/lib/telemetry.sh" ]]; then
+        TOOLKIT_SOURCE="$local_toolkit"
+    elif [[ -f "${HOME}/claude-workflow-toolkit/lib/telemetry.sh" ]]; then
+        TOOLKIT_SOURCE="${HOME}/claude-workflow-toolkit"
+    fi
+fi
+
+# ============================================================================
+# ARGUMENT PARSING
+# ============================================================================
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run|-n)
+            DRY_RUN=true
+            shift
+            ;;
+        --force|-f)
+            FORCE=true
+            shift
+            ;;
+        --link|-l)
+            USE_SYMLINKS=true
+            shift
+            ;;
+        --help|-h)
+            cat <<EOF
+Usage: /telemetry-init [OPTIONS]
+
+Initialize telemetry infrastructure for a project.
+
+OPTIONS:
+  --dry-run, -n       Preview what would be created
+  --force, -f         Overwrite existing files
+  --link, -l          Use symlinks to toolkit (requires TOOLKIT_SOURCE)
+  --project <path>    Target project path
+  --help, -h          Show this help
+
+CREATES:
+  .claude/telemetry/           Telemetry data directory
+  .claude/telemetry/.gitignore Excludes raw logs from git
+  lib/telemetry.sh             Core telemetry library (copied or symlinked)
+  lib/telemetry-session.sh     Session ID module
+
+EXAMPLES:
+  /telemetry-init              # Initialize in current project
+  /telemetry-init --dry-run    # Preview changes
+  /telemetry-init --link       # Symlink to toolkit source
+
+INSTRUMENTATION:
+  After initialization, add to your skills:
+    source "\${SCRIPT_DIR}/../../lib/telemetry.sh"
+    telemetry_start "skill-name"
+
+EOF
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+_create_dir() {
+    local dir="$1"
+    if [[ -d "$dir" ]]; then
+        echo -e "  ${CYAN}exists${NC}  $dir"
+    else
+        if $DRY_RUN; then
+            echo -e "  ${YELLOW}would create${NC}  $dir"
+        else
+            mkdir -p "$dir"
+            echo -e "  ${GREEN}created${NC} $dir"
+        fi
+    fi
+}
+
+_create_file() {
+    local file="$1"
+    local content="$2"
+
+    if [[ -f "$file" ]] && [[ "$FORCE" == "false" ]]; then
+        echo -e "  ${CYAN}exists${NC}  $file (use --force to overwrite)"
+    else
+        if $DRY_RUN; then
+            echo -e "  ${YELLOW}would create${NC}  $file"
+        else
+            echo "$content" > "$file"
+            echo -e "  ${GREEN}created${NC} $file"
+        fi
+    fi
+}
+
+_copy_file() {
+    local src="$1"
+    local dest="$2"
+
+    if [[ ! -f "$src" ]]; then
+        echo -e "  ${RED}missing${NC} $src"
+        return 1
+    fi
+
+    if [[ -f "$dest" ]] && [[ "$FORCE" == "false" ]]; then
+        echo -e "  ${CYAN}exists${NC}  $dest (use --force to overwrite)"
+    else
+        if $DRY_RUN; then
+            echo -e "  ${YELLOW}would copy${NC}   $src -> $dest"
+        else
+            cp "$src" "$dest"
+            echo -e "  ${GREEN}copied${NC}  $dest"
+        fi
+    fi
+}
+
+_symlink_file() {
+    local src="$1"
+    local dest="$2"
+
+    if [[ ! -f "$src" ]]; then
+        echo -e "  ${RED}missing${NC} $src"
+        return 1
+    fi
+
+    if [[ -L "$dest" ]]; then
+        echo -e "  ${CYAN}exists${NC}  $dest (symlink)"
+    elif [[ -f "$dest" ]] && [[ "$FORCE" == "false" ]]; then
+        echo -e "  ${CYAN}exists${NC}  $dest (use --force to replace with symlink)"
+    else
+        if $DRY_RUN; then
+            echo -e "  ${YELLOW}would link${NC}   $src -> $dest"
+        else
+            rm -f "$dest" 2>/dev/null || true
+            ln -s "$src" "$dest"
+            echo -e "  ${GREEN}linked${NC}  $dest -> $src"
+        fi
+    fi
+}
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+echo ""
+echo "========================================"
+echo -e "${BLUE}Telemetry Initialization${NC}"
+echo "========================================"
+echo ""
+echo -e "${CYAN}Target:${NC} ${TARGET_PROJECT:-$(pwd)}"
+echo -e "${CYAN}Mode:${NC}   $MODE"
+if $DRY_RUN; then
+    echo -e "${YELLOW}Dry run - no changes will be made${NC}"
+fi
+echo ""
+
+# 1. Create telemetry directory
+echo "Creating telemetry directory..."
+_create_dir "$TELEMETRY_DIR"
+
+# 2. Create .gitignore for telemetry
+echo ""
+echo "Setting up gitignore..."
+GITIGNORE_CONTENT="# Telemetry raw logs (too noisy for git)
+invocations.log
+
+# Keep aggregated data (useful history)
+!usage.json
+"
+_create_file "${TELEMETRY_DIR}/.gitignore" "$GITIGNORE_CONTENT"
+
+# 3. Create .gitkeep
+_create_file "${TELEMETRY_DIR}/.gitkeep" ""
+
+# 4. Install telemetry library
+echo ""
+echo "Installing telemetry library..."
+
+LIB_DIR="${TARGET_PROJECT}/lib"
+if [[ "$MODE" == "in-project" ]]; then
+    LIB_DIR="./lib"
+fi
+_create_dir "$LIB_DIR"
+
+if [[ -n "$TOOLKIT_SOURCE" ]]; then
+    if $USE_SYMLINKS; then
+        _symlink_file "${TOOLKIT_SOURCE}/lib/telemetry.sh" "${LIB_DIR}/telemetry.sh"
+        _symlink_file "${TOOLKIT_SOURCE}/lib/telemetry-session.sh" "${LIB_DIR}/telemetry-session.sh"
+    else
+        _copy_file "${TOOLKIT_SOURCE}/lib/telemetry.sh" "${LIB_DIR}/telemetry.sh"
+        _copy_file "${TOOLKIT_SOURCE}/lib/telemetry-session.sh" "${LIB_DIR}/telemetry-session.sh"
+    fi
+else
+    echo -e "  ${YELLOW}Warning:${NC} TOOLKIT_SOURCE not found"
+    echo "  Telemetry library not installed."
+    echo "  Set TOOLKIT_SOURCE or use --link with toolkit installed."
+fi
+
+# 5. Summary
+echo ""
+echo "========================================"
+echo "Next Steps"
+echo "========================================"
+echo ""
+echo "1. Add telemetry to your skills:"
+echo ""
+echo -e "   ${CYAN}# At the start of your skill${NC}"
+echo '   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'
+echo '   source "${SCRIPT_DIR}/../lib/telemetry.sh" 2>/dev/null || true'
+echo '   telemetry_start "your-skill-name"'
+echo ""
+echo "2. Run your skills normally - invocations logged automatically"
+echo ""
+echo "3. View reports:"
+echo "   /telemetry-report           # Usage statistics"
+echo "   /telemetry-aggregate        # Update aggregations"
+echo ""
+
+if $DRY_RUN; then
+    echo -e "${YELLOW}This was a dry run. Use without --dry-run to apply changes.${NC}"
+else
+    echo -e "${GREEN}Telemetry initialized!${NC}"
+fi
