@@ -63,6 +63,9 @@ output:
     - submit-pr
     - worker
     - sync-skills
+    - telemetry-init
+    - telemetry-report
+    - telemetry-aggregate
     - README.md
   commands:
     - check-reviews
@@ -72,6 +75,9 @@ output:
     - submit-pr
     - worker
     - sync-skills
+    - telemetry-init
+    - telemetry-report
+    - telemetry-aggregate
   docs:
     - QUICK-REFERENCE.md
     - FAQ-AGENTS.md

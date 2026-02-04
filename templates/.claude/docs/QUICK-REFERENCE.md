@@ -45,6 +45,14 @@ claude -c "read CLAUDE.md then /check-reviews"
 | `/sync-skills` | Update skills from toolkit templates |
 | `/address-review` | Checkout PR branch to address feedback |
 
+### Telemetry Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/telemetry-init` | Initialize telemetry for a project |
+| `/telemetry-report` | View skill usage statistics |
+| `/telemetry-aggregate` | Aggregate logs into usage.json |
+
 ## Finding Work
 
 ```bash

@@ -1,0 +1,96 @@
+---
+name: telemetry-init
+description: Initialize telemetry infrastructure for a project
+version: 1.0.0
+---
+
+# /telemetry-init
+
+Initialize telemetry infrastructure to track skill usage patterns.
+
+## Usage
+
+```bash
+/telemetry-init              # Initialize telemetry for current project
+/telemetry-init --dry-run    # Preview what would be created
+/telemetry-init --force      # Overwrite existing files
+```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run`, `-n` | Preview changes without creating files |
+| `--force`, `-f` | Overwrite existing telemetry files |
+| `--project <path>` | Target project path (for workspace mode) |
+| `--help`, `-h` | Show help |
+
+## What It Creates
+
+```
+.claude/
+├── telemetry/
+│   ├── .gitignore        # Excludes raw logs from git
+│   ├── .gitkeep          # Ensures directory is tracked
+│   └── invocations.log   # Created on first skill invocation
+lib/
+├── telemetry.sh          # Core telemetry library
+└── telemetry-session.sh  # Session management module
+```
+
+## How Telemetry Works
+
+1. **Skills source the library** at startup
+2. **Exit trap captures** exit code and duration
+3. **Log entry written** to `.claude/telemetry/invocations.log`
+4. **Zero token overhead** - operates at bash layer, invisible to AI
+
+## Log Format
+
+```
+{timestamp}|{session_id}|{skill}|{exit_code}|{duration_ms}
+```
+
+Example:
+```
+2026-02-03T14:23:45Z|1706972625-12345|check-reviews|0|1423
+2026-02-03T14:24:12Z|1706972625-12345|claim-issue|0|892
+```
+
+## After Initialization
+
+1. **Use skills normally** - invocations logged automatically
+2. **View reports** with `/telemetry-report`
+3. **Aggregate data** with `/telemetry-aggregate`
+
+## Privacy
+
+### Logged
+- Skill name, timestamp, exit code, duration, session ID
+
+### NOT Logged
+- Arguments, file contents, issue numbers, user identity, API responses
+
+## Related Skills
+
+| Skill | Relationship |
+|-------|--------------|
+| `/telemetry-report` | Generate usage reports from logs |
+| `/telemetry-aggregate` | Aggregate logs into JSON tally |
+
+## Troubleshooting
+
+### "Telemetry already initialized"
+
+Use `--force` to reinitialize:
+```bash
+/telemetry-init --force
+```
+
+### Skills not logging
+
+Ensure skills source the telemetry library:
+```bash
+source "${SCRIPT_DIR}/../../lib/telemetry.sh"
+telemetry_start "skill-name"
+```
