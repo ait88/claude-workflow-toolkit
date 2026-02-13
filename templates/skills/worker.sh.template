@@ -125,6 +125,8 @@ MAX_RETRIES={{WORKER_MAX_RETRIES}}
 MAX_ISSUES={{WORKER_MAX_ISSUES}}
 POLL_INTERVAL={{WORKER_POLL_INTERVAL}}
 DRY_RUN=false
+PARALLEL_COUNT={{WORKER_PARALLEL_DEFAULT}}
+PARALLEL_MAX={{WORKER_PARALLEL_MAX}}
 
 # Parse worker-specific flags
 RESET_STATE=false
@@ -146,6 +148,14 @@ _parse_worker_flags() {
             --once)
                 MAX_ISSUES=1
                 shift
+                ;;
+            --parallel)
+                PARALLEL_COUNT="${2:-3}"
+                if [[ "$PARALLEL_COUNT" -gt "$PARALLEL_MAX" ]]; then
+                    echo -e "${YELLOW}Warning: Clamping --parallel to max ($PARALLEL_MAX)${NC}"
+                    PARALLEL_COUNT="$PARALLEL_MAX"
+                fi
+                shift 2
                 ;;
             --reset)
                 RESET_STATE=true
@@ -173,12 +183,19 @@ _reset_worker_state() {
     echo "Resetting worker state..."
     rm -f "$LOCK_FILE" "$STATE_FILE" "$BRANCH_FILE" "$RETRY_FILE"
     rm -f "$DECISION_DIR"/*.json 2>/dev/null || true
+
+    # Clean up parallel state and worktrees
+    if [[ -d "${PARALLEL_DIR:-}" ]]; then
+        _parallel_reset
+    fi
+
     echo -e "${GREEN}Worker state cleared${NC}"
     echo ""
     echo "Cleared:"
     echo "  - Lock file"
     echo "  - Current issue tracking"
     echo "  - Decision queue"
+    echo "  - Parallel state and worktrees"
     echo ""
     echo "Note: history.log preserved"
 }
@@ -416,6 +433,24 @@ _find_next_issue() {
     echo "$issues"
 }
 
+_find_available_issues() {
+    local limit="${1:-3}"
+    # Query for multiple agent-ready issues, prioritized by phase label
+    local issues
+    issues=$(gh issue list --repo "$OWNER/$REPO" \
+        --label "agent-ready" \
+        --state open \
+        --limit "$limit" \
+        --json number,title,labels \
+        --jq 'sort_by(.labels | map(select(.name | startswith("{{PHASE_PREFIX}}"))) | .[0].name // "{{PHASE_PREFIX}}99") | .[:'"$limit"']' 2>/dev/null)
+
+    if [[ -z "$issues" || "$issues" == "null" || "$issues" == "[]" ]]; then
+        return 1
+    fi
+
+    echo "$issues"
+}
+
 _has_pending_reviews() {
     # Check for PRs authored by us with unaddressed review comments
     local review_count
@@ -451,6 +486,151 @@ _has_commits_ahead() {
 }
 
 # ============================================================================
+# WORKTREE MANAGEMENT (parallel mode)
+# ============================================================================
+
+_worktree_base_dir() {
+    echo "${TARGET_PROJECT}/.worktrees"
+}
+
+_worktree_path() {
+    local issue="$1"
+    echo "$(_worktree_base_dir)/issue-${issue}"
+}
+
+_worktree_ensure_gitignore() {
+    local gitignore="${TARGET_PROJECT}/.gitignore"
+    if [[ -f "$gitignore" ]]; then
+        if ! grep -qxF '.worktrees/' "$gitignore" 2>/dev/null; then
+            echo '.worktrees/' >> "$gitignore"
+        fi
+    else
+        echo '.worktrees/' > "$gitignore"
+    fi
+}
+
+_worktree_create() {
+    local issue="$1"
+    local branch="$2"
+    local wt_path
+    wt_path=$(_worktree_path "$issue")
+
+    if [[ -d "$wt_path" ]]; then
+        echo -e "${YELLOW}Worktree already exists: $wt_path${NC}"
+        return 0
+    fi
+
+    _worktree_ensure_gitignore
+    mkdir -p "$(_worktree_base_dir)"
+
+    # Fetch latest and create worktree from origin/DEFAULT_BRANCH
+    _git fetch origin "{{DEFAULT_BRANCH}}" --quiet 2>/dev/null || true
+    _git worktree add -b "$branch" "$wt_path" "origin/{{DEFAULT_BRANCH}}" 2>/dev/null
+
+    echo "$wt_path"
+}
+
+_worktree_remove() {
+    local issue="$1"
+    local wt_path
+    wt_path=$(_worktree_path "$issue")
+
+    if [[ -d "$wt_path" ]]; then
+        _git worktree remove --force "$wt_path" 2>/dev/null || true
+    fi
+    _git worktree prune 2>/dev/null || true
+}
+
+_worktree_list() {
+    local base_dir
+    base_dir=$(_worktree_base_dir)
+    if [[ -d "$base_dir" ]]; then
+        ls -d "${base_dir}"/issue-* 2>/dev/null || true
+    fi
+}
+
+_worktree_cleanup_all() {
+    local base_dir
+    base_dir=$(_worktree_base_dir)
+
+    if [[ -d "$base_dir" ]]; then
+        for wt in "${base_dir}"/issue-*; do
+            [[ -d "$wt" ]] || continue
+            _git worktree remove --force "$wt" 2>/dev/null || true
+        done
+        rmdir "$base_dir" 2>/dev/null || true
+    fi
+    _git worktree prune 2>/dev/null || true
+}
+
+# ============================================================================
+# PARALLEL STATE MANAGEMENT
+# ============================================================================
+
+PARALLEL_DIR="${SCRIPT_DIR}/../worker/parallel"
+
+_parallel_init() {
+    mkdir -p "$PARALLEL_DIR"
+}
+
+_parallel_register_issue() {
+    local issue="$1"
+    local branch="$2"
+    local wt_path="$3"
+
+    local issue_dir="${PARALLEL_DIR}/issue-${issue}"
+    mkdir -p "$issue_dir"
+
+    echo "claimed" > "${issue_dir}/status"
+    echo "$branch" > "${issue_dir}/branch"
+    echo "$wt_path" > "${issue_dir}/worktree-path"
+}
+
+_parallel_update_status() {
+    local issue="$1"
+    local status="$2"
+    local issue_dir="${PARALLEL_DIR}/issue-${issue}"
+
+    if [[ -d "$issue_dir" ]]; then
+        echo "$status" > "${issue_dir}/status"
+    fi
+}
+
+_parallel_set_error() {
+    local issue="$1"
+    local error_msg="$2"
+    local issue_dir="${PARALLEL_DIR}/issue-${issue}"
+
+    if [[ -d "$issue_dir" ]]; then
+        echo "$error_msg" > "${issue_dir}/error"
+    fi
+}
+
+_parallel_get_active() {
+    # List issue numbers with active parallel state
+    if [[ -d "$PARALLEL_DIR" ]]; then
+        for issue_dir in "${PARALLEL_DIR}"/issue-*; do
+            [[ -d "$issue_dir" ]] || continue
+            local issue_num
+            issue_num=$(basename "$issue_dir" | sed 's/^issue-//')
+            local status
+            status=$(cat "${issue_dir}/status" 2>/dev/null || echo "unknown")
+            echo "${issue_num}:${status}"
+        done
+    fi
+}
+
+_parallel_cleanup() {
+    rm -rf "$PARALLEL_DIR" 2>/dev/null || true
+}
+
+_parallel_reset() {
+    _parallel_cleanup
+    _worktree_cleanup_all
+    echo -e "${GREEN}Parallel state and worktrees cleaned up${NC}"
+}
+
+# ============================================================================
 # HELP AND STATUS
 # ============================================================================
 
@@ -464,17 +644,32 @@ MODES:
   /worker --status      Show workflow status (skills, reviews, issues)
   /worker --once        Run one complete cycle (claim → implement → submit)
   /worker               Continuous autonomous loop
+  /worker --parallel <n> Parallel mode: spawn n sub-agents for n issues
   /worker --help        Show this help message
 
 OPTIONS:
   --status, -s          Show workflow status without taking action
   --once                Process exactly one issue then stop
+  --parallel <n>        Spawn n parallel sub-agents (default: 3, max: {{WORKER_PARALLEL_MAX}})
   --max-issues <n>      Maximum issues to process (default: {{WORKER_MAX_ISSUES}})
   --dry-run             Show what would happen without making changes
-  --reset               Clear worker state (lock, current issue, queue)
+  --reset               Clear worker state (lock, current issue, queue, worktrees)
   --project, -p <path>  Target project path (overrides workspace config)
   --repo, -r <o/n>      GitHub repo as owner/name (overrides auto-detection)
   --help, -h            Show this help message
+
+PARALLEL MODE:
+  /worker --parallel 3    Discover 3 issues, create worktrees, spawn sub-agents
+  /worker --parallel 1    Equivalent to sequential mode (default)
+
+  Each sub-agent works autonomously in an isolated git worktree:
+  - Reads the issue, implements the solution
+  - Runs quality gates (tests, lint, security)
+  - Commits, pushes, creates PR
+  - Reports SUCCESS/FAILURE back to coordinator
+
+  Worktrees are created under {project}/.worktrees/issue-{N}/
+  Parallel state is tracked in .claude/worker/parallel/
 
 WORKFLOW:
   1. /worker --status   Check what needs attention
@@ -488,13 +683,24 @@ EXAMPLES:
   /worker --once                      # Claim and start one issue
   /worker --once --dry-run            # Preview without changes
   /worker --max-issues 3              # Process up to 3 issues
-  /worker --reset                     # Clear stale state
+  /worker --parallel 3                # Process 3 issues in parallel
+  /worker --reset                     # Clear stale state + worktrees
 
 STATE FILES:
   Worker state is stored in: ${SCRIPT_DIR}/../worker/
   - current-issue: Currently claimed issue
   - history.log: Completed issue history
   - decision-queue/: Issues needing human input
+  - parallel/: Parallel sub-agent tracking
+
+INTERNAL DISPATCH (used by coordinator, not for direct use):
+  --discover --limit <n>            Output JSON array of available issues
+  --worktree-create <issue> <branch> Create a git worktree for an issue
+  --worktree-remove <issue>         Remove a worktree for an issue
+  --worktree-cleanup                Remove all worktrees
+  --parallel-register <issue> <branch> <worktree-path>
+  --parallel-status                 Show parallel issue statuses
+  --parallel-update <issue> <status> Update status of parallel issue
 
 EOF
 }
@@ -642,6 +848,29 @@ _show_status() {
         echo -e "${BLUE}ℹ Worker:${NC}  Issue #$current_issue in progress"
     fi
 
+    # Parallel state
+    if [[ -d "$PARALLEL_DIR" ]]; then
+        local parallel_issues
+        parallel_issues=$(_parallel_get_active)
+        if [[ -n "$parallel_issues" ]]; then
+            local p_count
+            p_count=$(echo "$parallel_issues" | wc -l | tr -d ' ')
+            echo -e "${BLUE}ℹ Parallel:${NC} $p_count issue(s) tracked"
+            echo "$parallel_issues" | while IFS=: read -r p_issue p_status; do
+                echo "    #$p_issue: $p_status"
+            done
+        fi
+    fi
+
+    # Active worktrees
+    local worktree_list
+    worktree_list=$(_worktree_list 2>/dev/null)
+    if [[ -n "$worktree_list" ]]; then
+        local wt_count
+        wt_count=$(echo "$worktree_list" | wc -l | tr -d ' ')
+        echo -e "${BLUE}ℹ Worktrees:${NC} $wt_count active"
+    fi
+
     # Pending decisions
     local decision_count
     decision_count=$(find "$DECISION_DIR" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -714,6 +943,176 @@ _show_status() {
     esac
 
     echo ""
+}
+
+# ============================================================================
+# PARALLEL ORCHESTRATION
+# ============================================================================
+
+_parallel_orchestrate() {
+    local count="$PARALLEL_COUNT"
+
+    echo ""
+    echo "========================================"
+    echo -e "${BLUE}Parallel Worker Mode${NC}"
+    echo "========================================"
+    echo "Repository:   $OWNER/$REPO"
+    echo "Parallel:     $count sub-agents"
+    echo "Dry run:      $DRY_RUN"
+    echo ""
+
+    # Pre-flight: check for pending reviews
+    echo -e "${BLUE}Pre-flight:${NC} Checking for pending reviews..."
+    if _has_pending_reviews; then
+        echo -e "${YELLOW}Found PRs with requested changes${NC}"
+        echo "Run /check-reviews to see details. Worker pausing until reviews are addressed."
+        return 0
+    fi
+    echo "No pending reviews"
+    echo ""
+
+    # Discover available issues
+    echo -e "${BLUE}Discovering:${NC} Finding up to $count agent-ready issues..."
+    local issues_json
+    issues_json=$(_find_available_issues "$count") || {
+        echo "No agent-ready issues found"
+        return 0
+    }
+
+    local actual_count
+    actual_count=$(echo "$issues_json" | jq 'length')
+    echo "Found $actual_count issue(s)"
+    echo ""
+
+    if $DRY_RUN; then
+        echo -e "${YELLOW}[DRY RUN]${NC} Would process these issues in parallel:"
+        echo "$issues_json" | jq -r '.[] | "  #\(.number) - \(.title)"'
+        echo ""
+        echo "Would create $actual_count worktrees under $(_worktree_base_dir)/"
+        echo "Would spawn $actual_count sub-agents via Task tool"
+        return 0
+    fi
+
+    # Initialize parallel state
+    _parallel_init
+
+    # Claim all issues and create worktrees
+    echo -e "${BLUE}Claiming:${NC} Setting up $actual_count issues..."
+    echo ""
+
+    local claimed_issues=()
+    local i=0
+    while [[ $i -lt $actual_count ]]; do
+        local issue_num issue_title
+        issue_num=$(echo "$issues_json" | jq -r ".[$i].number")
+        issue_title=$(echo "$issues_json" | jq -r ".[$i].title")
+
+        echo -n "  #$issue_num ($issue_title): "
+
+        # Create branch name
+        local slug
+        slug=$(echo "$issue_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-50)
+        local branch="${issue_num}-${slug}"
+
+        # Create worktree
+        local wt_path
+        wt_path=$(_worktree_create "$issue_num" "$branch" 2>&1) || {
+            echo -e "${RED}worktree failed${NC}"
+            _log_history "PARALLEL_FAILED" "$issue_num" "Worktree creation failed: $wt_path"
+            ((i++))
+            continue
+        }
+        wt_path=$(_worktree_path "$issue_num")
+
+        # Claim the issue (label swap: agent-ready → in-progress)
+        if ! gh issue edit "$issue_num" --repo "$OWNER/$REPO" \
+            --remove-label "agent-ready" --add-label "in-progress" > /dev/null 2>&1; then
+            echo -e "${RED}claim failed${NC}"
+            _worktree_remove "$issue_num"
+            _log_history "CLAIM_FAILED" "$issue_num" "Label swap failed during parallel claim"
+            ((i++))
+            continue
+        fi
+
+        # Register parallel state
+        _parallel_register_issue "$issue_num" "$branch" "$wt_path"
+
+        echo -e "${GREEN}claimed${NC} → $wt_path"
+        claimed_issues+=("$issue_num")
+        _log_history "PARALLEL_CLAIMED" "$issue_num" "Branch: $branch"
+        ((i++))
+    done
+
+    echo ""
+
+    if [[ ${#claimed_issues[@]} -eq 0 ]]; then
+        echo -e "${RED}No issues could be claimed${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}${#claimed_issues[@]} issue(s) claimed and ready for sub-agents${NC}"
+    echo ""
+
+    # Output instructions for the Claude Code coordinator
+    echo "========================================"
+    echo -e "${BLUE}Sub-Agent Dispatch Instructions${NC}"
+    echo "========================================"
+    echo ""
+    echo "Spawn ${#claimed_issues[@]} sub-agent(s) using the Task tool (all at once)."
+    echo "Use subagent_type='general-purpose' for each."
+    echo ""
+    echo "IMPORTANT: Launch ALL sub-agents in a SINGLE message with multiple Task tool calls."
+    echo ""
+
+    for issue_num in "${claimed_issues[@]}"; do
+        local issue_dir="${PARALLEL_DIR}/issue-${issue_num}"
+        local branch wt_path
+        branch=$(cat "${issue_dir}/branch" 2>/dev/null)
+        wt_path=$(cat "${issue_dir}/worktree-path" 2>/dev/null)
+
+        echo "--- Sub-Agent for Issue #$issue_num ---"
+        echo "  Branch:    $branch"
+        echo "  Worktree:  $wt_path"
+        echo "  Repo:      $OWNER/$REPO"
+        echo ""
+    done
+
+    echo "After all sub-agents complete, run:"
+    echo "  /worker --status              # Check results"
+    echo "  /worker --reset               # Clean up worktrees and parallel state"
+    echo ""
+
+    # Output JSON summary for programmatic use by coordinator
+    echo "PARALLEL_DISPATCH_JSON_START"
+    echo "{"
+    echo "  \"repo\": \"$OWNER/$REPO\","
+    echo "  \"default_branch\": \"{{DEFAULT_BRANCH}}\","
+    echo "  \"test_command\": \"{{TEST_COMMAND}}\","
+    echo "  \"lint_command\": \"{{LINT_COMMAND}}\","
+    echo "  \"max_retries\": $MAX_RETRIES,"
+    echo "  \"issues\": ["
+
+    local first=true
+    for issue_num in "${claimed_issues[@]}"; do
+        local issue_dir="${PARALLEL_DIR}/issue-${issue_num}"
+        local branch wt_path
+        branch=$(cat "${issue_dir}/branch" 2>/dev/null)
+        wt_path=$(cat "${issue_dir}/worktree-path" 2>/dev/null)
+
+        if $first; then first=false; else echo ","; fi
+        echo "    {"
+        echo "      \"number\": $issue_num,"
+        echo "      \"branch\": \"$branch\","
+        echo "      \"worktree\": \"$wt_path\""
+        echo -n "    }"
+    done
+
+    echo ""
+    echo "  ]"
+    echo "}"
+    echo "PARALLEL_DISPATCH_JSON_END"
+
+    return 0
 }
 
 # ============================================================================
@@ -911,6 +1310,87 @@ _worker_loop() {
 # MAIN
 # ============================================================================
 
+# ============================================================================
+# INTERNAL DISPATCH SUBCOMMANDS (used by coordinator)
+# ============================================================================
+# These short-circuit before existing flow so sequential mode is unaffected.
+
+_handle_dispatch() {
+    case "${1:-}" in
+        --discover)
+            shift
+            local limit=3
+            if [[ "${1:-}" == "--limit" ]] && [[ -n "${2:-}" ]]; then
+                limit="$2"
+            fi
+            _detect_mode
+            _get_repo_info
+            _find_available_issues "$limit"
+            exit $?
+            ;;
+        --worktree-create)
+            local issue="${2:-}"
+            local branch="${3:-}"
+            if [[ -z "$issue" ]] || [[ -z "$branch" ]]; then
+                echo "Usage: --worktree-create <issue> <branch>"
+                exit 1
+            fi
+            _detect_mode
+            _worktree_create "$issue" "$branch"
+            exit $?
+            ;;
+        --worktree-remove)
+            local issue="${2:-}"
+            if [[ -z "$issue" ]]; then
+                echo "Usage: --worktree-remove <issue>"
+                exit 1
+            fi
+            _detect_mode
+            _worktree_remove "$issue"
+            exit $?
+            ;;
+        --worktree-cleanup)
+            _detect_mode
+            _worktree_cleanup_all
+            echo "All worktrees cleaned up"
+            exit 0
+            ;;
+        --parallel-register)
+            local issue="${2:-}" branch="${3:-}" wt_path="${4:-}"
+            if [[ -z "$issue" ]] || [[ -z "$branch" ]] || [[ -z "$wt_path" ]]; then
+                echo "Usage: --parallel-register <issue> <branch> <worktree-path>"
+                exit 1
+            fi
+            _parallel_init
+            _parallel_register_issue "$issue" "$branch" "$wt_path"
+            exit 0
+            ;;
+        --parallel-status)
+            _parallel_init
+            local active
+            active=$(_parallel_get_active)
+            if [[ -z "$active" ]]; then
+                echo "No active parallel issues"
+            else
+                echo "$active"
+            fi
+            exit 0
+            ;;
+        --parallel-update)
+            local issue="${2:-}" status="${3:-}"
+            if [[ -z "$issue" ]] || [[ -z "$status" ]]; then
+                echo "Usage: --parallel-update <issue> <status>"
+                exit 1
+            fi
+            _parallel_update_status "$issue" "$status"
+            exit 0
+            ;;
+    esac
+}
+
+# Check for dispatch subcommands first (before normal flag parsing)
+_handle_dispatch "$@"
+
 # Parse flags in correct order
 _parse_project_flag "$@"
 set -- "${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}"
@@ -984,6 +1464,10 @@ fi
 
 _init_worker_state
 
-# Run the loop
-_worker_loop
+# Run parallel or sequential mode
+if [[ "$PARALLEL_COUNT" -gt 1 ]]; then
+    _parallel_orchestrate
+else
+    _worker_loop
+fi
 exit 0

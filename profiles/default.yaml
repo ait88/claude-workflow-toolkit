@@ -39,6 +39,8 @@ worker:
   max_retries: 3        # Max attempts to fix quality gate failures
   max_issues: 10        # Max issues to process per worker session
   poll_interval: 60     # Seconds between issue queries when none available
+  parallel_default: 1   # Default parallel count (1 = sequential mode)
+  parallel_max: 5       # Hard cap on parallel sub-agents
 
 commit:
   types:
