@@ -232,7 +232,12 @@ substitute_placeholders() {
     if $DRY_RUN; then
         echo "[DRY RUN] Would write to: $output_file"
     else
-        echo "$content" > "$output_file"
+        # Write to temp file then atomically move into place.
+        # This prevents corruption when a skill overwrites itself during sync.
+        local tmp_file
+        tmp_file=$(mktemp "${output_file}.XXXXXX")
+        echo "$content" > "$tmp_file"
+        mv -f "$tmp_file" "$output_file"
     fi
 }
 
