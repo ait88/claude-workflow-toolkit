@@ -205,6 +205,12 @@ build_placeholder_map() {
 
     PLACEHOLDERS[WORKER_POLL_INTERVAL]=$(yaml_get_nested "$profile" "worker" "poll_interval")
     [[ -z "${PLACEHOLDERS[WORKER_POLL_INTERVAL]:-}" ]] && PLACEHOLDERS[WORKER_POLL_INTERVAL]="60" || true
+
+    PLACEHOLDERS[WORKER_PARALLEL_DEFAULT]=$(yaml_get_nested "$profile" "worker" "parallel_default")
+    [[ -z "${PLACEHOLDERS[WORKER_PARALLEL_DEFAULT]:-}" ]] && PLACEHOLDERS[WORKER_PARALLEL_DEFAULT]="1" || true
+
+    PLACEHOLDERS[WORKER_PARALLEL_MAX]=$(yaml_get_nested "$profile" "worker" "parallel_max")
+    [[ -z "${PLACEHOLDERS[WORKER_PARALLEL_MAX]:-}" ]] && PLACEHOLDERS[WORKER_PARALLEL_MAX]="5" || true
 }
 
 # Substitute placeholders in a file

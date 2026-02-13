@@ -11,10 +11,11 @@ version: 2.0.0
 ## Quick Start
 
 ```bash
-/worker --status    # What needs attention?
-/worker --once      # Start or continue one work cycle
-/worker             # Continuous autonomous mode
-/worker --help      # Show all options
+/worker --status      # What needs attention?
+/worker --once        # Start or continue one work cycle
+/worker               # Continuous autonomous mode
+/worker --parallel 3  # Process 3 issues in parallel via sub-agents
+/worker --help        # Show all options
 ```
 
 ## Modes
@@ -52,16 +53,27 @@ Runs exactly one iteration:
 
 Autonomous loop processing up to {{WORKER_MAX_ISSUES}} issues.
 
+### Parallel Mode
+
+```bash
+/worker --parallel 3
+```
+
+Discovers multiple `agent-ready` issues, creates isolated git worktrees, claims all issues atomically, then outputs dispatch instructions for spawning sub-agents via the Task tool. Each sub-agent works autonomously in its own worktree.
+
+Use `--parallel 1` (the default) for sequential behavior.
+
 ## Options
 
 | Option | Description |
 |--------|-------------|
 | `--status`, `-s` | Show workflow status without action |
 | `--once` | Process exactly one issue then exit |
+| `--parallel <n>` | Spawn n parallel sub-agents (default: 3, max: {{WORKER_PARALLEL_MAX}}) |
 | `--help`, `-h` | Show usage and all options |
 | `--max-issues <n>` | Maximum issues to process (default: {{WORKER_MAX_ISSUES}}) |
 | `--dry-run` | Preview without making changes |
-| `--reset` | Clear worker state (lock, current issue, queue) |
+| `--reset` | Clear worker state (lock, current issue, queue, worktrees) |
 | `--project <path>` | Target project directory |
 | `--repo <owner/name>` | Target GitHub repository |
 
@@ -135,6 +147,7 @@ Worker state is maintained in `.claude/worker/`:
 | `current-issue` | Issue number being worked |
 | `history.log` | Completed work log |
 | `decision-queue/` | Issues needing human input |
+| `parallel/` | Parallel sub-agent tracking |
 
 ## Examples
 
@@ -156,6 +169,12 @@ Worker state is maintained in `.claude/worker/`:
 
 # Full autonomous mode
 /worker --max-issues 5
+
+# Process 3 issues in parallel
+/worker --parallel 3
+
+# Preview parallel dispatch
+/worker --parallel 3 --dry-run
 ```
 
 ## Related Skills
@@ -166,6 +185,72 @@ Worker state is maintained in `.claude/worker/`:
 | `/claim-issue` | Manual claiming (worker does this automatically) |
 | `/submit-pr` | Manual submission (worker does this automatically) |
 | `/sync-skills` | Update skills (worker checks staleness) |
+
+## Parallel Orchestration Protocol
+
+When `--parallel <n>` is used (with n > 1), the coordinator agent follows this protocol:
+
+### Step 1: Pre-flight Check
+Run `/worker --status` and verify no pending reviews block new work.
+
+### Step 2: Discover and Claim
+Run `/worker --parallel <n>`. The skill will:
+- Query for up to n `agent-ready` issues
+- Create isolated git worktrees under `{project}/.worktrees/issue-{N}/`
+- Claim all issues atomically (label swap: `agent-ready` → `in-progress`)
+- Register parallel state in `.claude/worker/parallel/`
+- Output a JSON dispatch block with issue details
+
+### Step 3: Spawn Sub-Agents
+Parse the `PARALLEL_DISPATCH_JSON` output block. For **each** issue, spawn a Task tool sub-agent (`general-purpose` type) using the Sub-Agent Prompt Template below. Launch **all sub-agents in a single message** with multiple Task tool calls.
+
+### Step 4: Collect Results
+Each sub-agent returns a result message with SUCCESS or FAILURE status. Aggregate results and report summary.
+
+### Step 5: Clean Up
+Run `/worker --reset` to clean up worktrees and parallel state, or leave them for inspection.
+
+## Sub-Agent Prompt Template
+
+When spawning each sub-agent, use this prompt template (fill in values from the dispatch JSON):
+
+```
+You are an autonomous worker agent. Complete this GitHub issue end-to-end.
+
+CONTEXT:
+- Repository: {repo}
+- Issue: #{number}
+- Branch: {branch} (already created)
+- Worktree: {worktree} (your working directory - use this path for ALL operations)
+- Default branch: {default_branch}
+
+INSTRUCTIONS:
+1. Read the issue: gh issue view {number} --repo {repo}
+2. Understand the requirements fully before coding
+3. Work ONLY within the worktree directory: {worktree}
+4. Implement the solution following project conventions
+5. Run quality gates:
+   - Tests: cd {worktree} && {test_command}
+   - Lint: cd {worktree} && {lint_command}
+6. Fix any failures (up to {max_retries} attempts)
+7. Stage, commit, and push:
+   - cd {worktree} && git add -A && git commit -m "feat: <description>\n\nCloses #{number}"
+   - cd {worktree} && git push -u origin {branch}
+8. Create PR:
+   - gh pr create --repo {repo} --head {branch} --base {default_branch} \
+     --title "<type>: <title>" --body "Closes #{number}\n\n<description>"
+
+RESULT FORMAT:
+Report back with exactly one of:
+- SUCCESS: PR #{pr_number} created for issue #{number}
+- FAILURE: Issue #{number} - <reason>
+
+IMPORTANT:
+- Do NOT modify files outside your worktree
+- Do NOT interact with other worktrees
+- Do NOT change labels on the issue (coordinator handles that)
+- If stuck, report FAILURE with details rather than guessing
+```
 
 ## Troubleshooting
 
@@ -190,4 +275,25 @@ The status mode will suggest next steps:
 ```bash
 /worker --status
 # Shows: git checkout main && git pull
+```
+
+### Stale worktrees after parallel run
+
+Clean up all worktrees and parallel state:
+```bash
+/worker --reset
+```
+
+### Sub-agent failed but worktree remains
+
+Remove a specific worktree:
+```bash
+.claude/skills/worker --worktree-remove <issue-number>
+```
+
+### Parallel issues still labeled in-progress
+
+If sub-agents failed without creating PRs, manually re-label:
+```bash
+gh issue edit <N> --remove-label in-progress --add-label agent-ready
 ```

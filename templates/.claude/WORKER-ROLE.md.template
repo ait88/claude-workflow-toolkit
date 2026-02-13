@@ -91,6 +91,22 @@ The worker logs all activity to `.claude/worker/history.log`:
 - **Multiple workers OK** on different clones of the same repo
 - **Atomic claiming** via GitHub labels prevents duplicate work
 
+### Parallel Mode
+
+When invoked with `--parallel <n>`, the worker uses a coordinator/sub-agent architecture:
+
+- **Coordinator** (main agent) discovers issues, creates git worktrees, claims issues, and spawns sub-agents via the Task tool
+- **Sub-agents** (spawned via Task tool, `general-purpose` type) each work autonomously in an isolated worktree
+- **Git worktrees** provide filesystem isolation under `{project}/.worktrees/issue-{N}/`
+- **Parallel state** is tracked in `.claude/worker/parallel/issue-{N}/` (status, branch, worktree path, errors)
+
+Sub-agent autonomy boundaries:
+- Sub-agents work ONLY within their assigned worktree
+- Sub-agents do NOT modify labels (coordinator handles claiming)
+- Sub-agents do NOT interact with other worktrees or the main checkout
+- Sub-agents report SUCCESS/FAILURE back to the coordinator
+- On failure, sub-agents provide details rather than retrying indefinitely
+
 ## Session Behavior
 
 1. **Resume first**: Check for in-progress work before claiming new issues
