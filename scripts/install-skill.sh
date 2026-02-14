@@ -6,11 +6,13 @@
 #   ./scripts/install-skill.sh <skill-name> [options]
 #   ./scripts/install-skill.sh --list
 #   ./scripts/install-skill.sh --all
+#   ./scripts/install-skill.sh --full
 #
 # Options:
 #   --target <path>    Target workspace/project directory
 #   --profile <name>   Profile to use for placeholder values (default: default)
 #   --update           Force update even if skill exists
+#   --full             Sync everything: skills + commands + CLAUDE.md + roles + docs
 #   --dry-run          Show what would be done without making changes
 
 set -euo pipefail
@@ -33,6 +35,7 @@ UPDATE_MODE=false
 DRY_RUN=false
 LIST_MODE=false
 ALL_MODE=false
+FULL_MODE=false
 INSTALL_CLAUDE_MD=false
 SKILL_NAME=""
 
@@ -45,6 +48,7 @@ usage() {
 Usage: $0 <skill-name> [options]
        $0 --list
        $0 --all [options]
+       $0 --full [options]
 
 Install skills from templates to a workspace or project.
 
@@ -58,6 +62,7 @@ Options:
   --dry-run            Show what would be done without making changes
   --list               List available skills
   --all                Install all skills from profile
+  --full               Full toolkit sync: skills + CLAUDE.md + roles + docs + config
   --with-claude-md     Also install CLAUDE.md to project root
   --help               Show this help message
 
@@ -65,6 +70,7 @@ Examples:
   $0 worker                           # Install worker to current directory
   $0 worker --target ~/my-workspace   # Install to specific workspace
   $0 --all --profile node-npm         # Install all skills with node profile
+  $0 --full --target ~/my-workspace   # Full toolkit sync
   $0 claim-issue --update             # Update existing skill
   $0 --list                           # Show available skills
 
@@ -94,6 +100,11 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --all|-a)
+            ALL_MODE=true
+            shift
+            ;;
+        --full)
+            FULL_MODE=true
             ALL_MODE=true
             shift
             ;;
@@ -383,6 +394,296 @@ install_claude_md() {
 }
 
 # ============================================================================
+# FULL MODE FUNCTIONS
+# ============================================================================
+
+# Detect repo owner/name from workspace-config or git
+_detect_repo_info() {
+    local repo_owner="" repo_name=""
+    if [[ -f "$TARGET_PATH/.claude/workspace-config" ]]; then
+        # shellcheck source=/dev/null
+        source "$TARGET_PATH/.claude/workspace-config"
+        repo_owner="${TARGET_REPO_OWNER:-}"
+        repo_name="${TARGET_REPO_NAME:-}"
+    fi
+
+    if [[ -z "$repo_owner" ]] && [[ -d "$TARGET_PATH/.git" ]]; then
+        local remote_url
+        remote_url=$(cd "$TARGET_PATH" && git remote get-url origin 2>/dev/null || true)
+        if [[ "$remote_url" =~ github\.com[:/]([^/]+)/([^/.]+) ]]; then
+            repo_owner="${BASH_REMATCH[1]}"
+            repo_name="${BASH_REMATCH[2]}"
+        fi
+    fi
+
+    PLACEHOLDERS[REPO_OWNER]="${repo_owner:-OWNER}"
+    PLACEHOLDERS[REPO_NAME]="${repo_name:-REPO}"
+}
+
+# Install WORKER-ROLE.md (always overwrite)
+install_worker_role() {
+    local template="$TOOLKIT_DIR/templates/.claude/WORKER-ROLE.md.template"
+    local output="$TARGET_PATH/.claude/WORKER-ROLE.md"
+
+    if [[ ! -f "$template" ]]; then
+        echo -e "  ${YELLOW}⊘${NC} WORKER-ROLE.md (template not found)"
+        return 0
+    fi
+
+    if $DRY_RUN; then
+        echo -e "  ${BLUE}→${NC} .claude/WORKER-ROLE.md"
+        return 0
+    fi
+
+    mkdir -p "$TARGET_PATH/.claude"
+    substitute_placeholders "$template" "$output"
+    echo -e "  ${GREEN}✓${NC} .claude/WORKER-ROLE.md"
+}
+
+# Install SECURITY-CHECKLIST.md (always overwrite)
+install_security_checklist() {
+    # Determine which security checklist to use from profile
+    local security_template=""
+    local security_name
+    security_name=$(yaml_get_list "$PROFILE_FILE" "output" "security" | head -1)
+
+    if [[ -n "$security_name" ]]; then
+        security_template="$TOOLKIT_DIR/templates/.claude/${security_name}.template"
+    fi
+
+    # Fallback to generic
+    if [[ -z "$security_template" ]] || [[ ! -f "$security_template" ]]; then
+        security_template="$TOOLKIT_DIR/templates/.claude/SECURITY-CHECKLIST.md.template"
+    fi
+
+    if [[ ! -f "$security_template" ]]; then
+        echo -e "  ${YELLOW}⊘${NC} SECURITY-CHECKLIST.md (template not found)"
+        return 0
+    fi
+
+    local output="$TARGET_PATH/.claude/SECURITY-CHECKLIST.md"
+
+    if $DRY_RUN; then
+        echo -e "  ${BLUE}→${NC} .claude/SECURITY-CHECKLIST.md"
+        return 0
+    fi
+
+    mkdir -p "$TARGET_PATH/.claude"
+    substitute_placeholders "$security_template" "$output"
+    echo -e "  ${GREEN}✓${NC} .claude/SECURITY-CHECKLIST.md"
+}
+
+# Install toolkit-version file (always regenerate)
+install_toolkit_version() {
+    local template="$TOOLKIT_DIR/templates/.claude/toolkit-version.template"
+    local output="$TARGET_PATH/.claude/toolkit-version"
+
+    if [[ ! -f "$template" ]]; then
+        echo -e "  ${YELLOW}⊘${NC} toolkit-version (template not found)"
+        return 0
+    fi
+
+    # Add dynamic placeholders
+    PLACEHOLDERS[TOOLKIT_SOURCE]="$TOOLKIT_DIR"
+    PLACEHOLDERS[TOOLKIT_COMMIT]=$(cd "$TOOLKIT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    PLACEHOLDERS[CURRENT_DATE]=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    PLACEHOLDERS[INSTALLATION_MODE]="full"
+
+    if $DRY_RUN; then
+        echo -e "  ${BLUE}→${NC} .claude/toolkit-version"
+        return 0
+    fi
+
+    mkdir -p "$TARGET_PATH/.claude"
+    substitute_placeholders "$template" "$output"
+    echo -e "  ${GREEN}✓${NC} .claude/toolkit-version"
+}
+
+# Ensure .codex/skills symlink exists
+ensure_codex_symlink() {
+    local symlink="$TARGET_PATH/.codex/skills"
+
+    if $DRY_RUN; then
+        echo -e "  ${BLUE}→${NC} .codex/skills -> .claude/skills"
+        return 0
+    fi
+
+    mkdir -p "$TARGET_PATH/.codex"
+    if [[ -L "$symlink" ]]; then
+        echo -e "  ${GREEN}✓${NC} .codex/skills (symlink exists)"
+    else
+        rm -f "$symlink"
+        ln -s ../.claude/skills "$symlink"
+        echo -e "  ${GREEN}✓${NC} .codex/skills -> .claude/skills"
+    fi
+}
+
+# Install docs (create-if-missing, never overwrite)
+install_docs() {
+    local docs_dir="$TARGET_PATH/.claude/docs"
+
+    if ! $DRY_RUN; then
+        mkdir -p "$docs_dir"
+    fi
+
+    local doc_templates=(
+        "QUICK-REFERENCE.md:templates/docs/QUICK-REFERENCE.md.template"
+        "FAQ-AGENTS.md:templates/docs/FAQ-AGENTS.md.template"
+        "CODEBASE-MAP.md:templates/docs/CODEBASE-MAP.md.template"
+    )
+
+    for entry in "${doc_templates[@]}"; do
+        local doc_name="${entry%%:*}"
+        local template_path="$TOOLKIT_DIR/${entry#*:}"
+        local output="$docs_dir/$doc_name"
+
+        if [[ ! -f "$template_path" ]]; then
+            continue
+        fi
+
+        if [[ -f "$output" ]]; then
+            echo -e "  ${YELLOW}⊘${NC} .claude/docs/$doc_name (exists, preserved)"
+            continue
+        fi
+
+        if $DRY_RUN; then
+            echo -e "  ${BLUE}→${NC} .claude/docs/$doc_name"
+        else
+            substitute_placeholders "$template_path" "$output"
+            echo -e "  ${GREEN}✓${NC} .claude/docs/$doc_name"
+        fi
+    done
+}
+
+# Install WORKSPACE.md (create-if-missing, never overwrite)
+install_workspace_md() {
+    local template="$TOOLKIT_DIR/templates/WORKSPACE.md.template"
+    local output="$TARGET_PATH/WORKSPACE.md"
+
+    if [[ ! -f "$template" ]]; then
+        return 0
+    fi
+
+    if [[ -f "$output" ]]; then
+        echo -e "  ${YELLOW}⊘${NC} WORKSPACE.md (exists, preserved)"
+        return 0
+    fi
+
+    if $DRY_RUN; then
+        echo -e "  ${BLUE}→${NC} WORKSPACE.md"
+    else
+        substitute_placeholders "$template" "$output"
+        echo -e "  ${GREEN}✓${NC} WORKSPACE.md"
+    fi
+}
+
+# Install CLAUDE.md with marker-based merge
+install_claude_md_with_markers() {
+    local template="$TOOLKIT_DIR/templates/CLAUDE.md.template"
+    local output="$TARGET_PATH/CLAUDE.md"
+
+    if [[ ! -f "$template" ]]; then
+        echo -e "${YELLOW}Warning: CLAUDE.md template not found${NC}"
+        return 1
+    fi
+
+    # Prepare toolkit content from template with placeholders resolved
+    local toolkit_content
+    toolkit_content=$(cat "$template")
+    for key in "${!PLACEHOLDERS[@]}"; do
+        local value="${PLACEHOLDERS[$key]}"
+        value=$(echo "$value" | sed 's/[&/\]/\\&/g')
+        toolkit_content=$(echo "$toolkit_content" | sed "s|{{${key}}}|${value}|g")
+    done
+
+    local marker_begin="<!-- TOOLKIT:BEGIN -->"
+    local marker_end="<!-- TOOLKIT:END -->"
+
+    if $DRY_RUN; then
+        if [[ ! -f "$output" ]]; then
+            echo -e "  ${BLUE}→${NC} CLAUDE.md (create with markers)"
+        elif grep -q "$marker_begin" "$output" 2>/dev/null; then
+            echo -e "  ${BLUE}→${NC} CLAUDE.md (update marker section)"
+        elif $UPDATE_MODE; then
+            echo -e "  ${BLUE}→${NC} CLAUDE.md (prepend toolkit section)"
+        else
+            echo -e "  ${YELLOW}⊘${NC} CLAUDE.md (no markers, use --update to prepend)"
+        fi
+        return 0
+    fi
+
+    # Case 1: File doesn't exist - create with markers
+    if [[ ! -f "$output" ]]; then
+        local tmp_file
+        tmp_file=$(mktemp "${output}.XXXXXX")
+        echo "$toolkit_content" > "$tmp_file"
+        mv -f "$tmp_file" "$output"
+        echo -e "  ${GREEN}✓${NC} CLAUDE.md (created with markers)"
+        return 0
+    fi
+
+    # Case 2: File exists with markers - replace between markers
+    if grep -q "$marker_begin" "$output" 2>/dev/null; then
+        local tmp_file
+        tmp_file=$(mktemp "${output}.XXXXXX")
+
+        # Extract content before markers, toolkit content, and content after markers
+        awk -v begin="$marker_begin" -v end="$marker_end" '
+            BEGIN { state="before" }
+            state=="before" && index($0, begin) { state="inside"; next }
+            state=="inside" && index($0, end) { state="after"; next }
+            state=="before" { print }
+            state=="after" { print }
+        ' "$output" > "$tmp_file.parts"
+
+        # Get before-marker content
+        local before_content after_content
+        before_content=$(awk -v begin="$marker_begin" '
+            index($0, begin) { exit }
+            { print }
+        ' "$output")
+
+        after_content=$(awk -v end="$marker_end" '
+            found { print; next }
+            index($0, end) { found=1 }
+        ' "$output")
+
+        {
+            if [[ -n "$before_content" ]]; then
+                echo "$before_content"
+            fi
+            echo "$toolkit_content"
+            if [[ -n "$after_content" ]]; then
+                echo "$after_content"
+            fi
+        } > "$tmp_file"
+
+        rm -f "$tmp_file.parts"
+        mv -f "$tmp_file" "$output"
+        echo -e "  ${GREEN}✓${NC} CLAUDE.md (markers updated, user content preserved)"
+        return 0
+    fi
+
+    # Case 3: File exists without markers
+    if $UPDATE_MODE; then
+        # Prepend toolkit section
+        local tmp_file
+        tmp_file=$(mktemp "${output}.XXXXXX")
+        {
+            echo "$toolkit_content"
+            echo ""
+            cat "$output"
+        } > "$tmp_file"
+        mv -f "$tmp_file" "$output"
+        echo -e "  ${GREEN}✓${NC} CLAUDE.md (toolkit section prepended)"
+        return 0
+    fi
+
+    echo -e "  ${YELLOW}⊘${NC} CLAUDE.md (no markers found, use --update to prepend)"
+    return 0
+}
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -392,9 +693,9 @@ if $LIST_MODE; then
     exit 0
 fi
 
-# Validate we have a skill name or --all
+# Validate we have a skill name or --all/--full
 if [[ -z "$SKILL_NAME" ]] && ! $ALL_MODE; then
-    echo -e "${RED}Error: Skill name required (or use --all)${NC}"
+    echo -e "${RED}Error: Skill name required (or use --all / --full)${NC}"
     echo ""
     usage
     exit 1
@@ -461,11 +762,36 @@ for skill in "${SKILLS_TO_INSTALL[@]}"; do
     fi
 done
 
-# Install CLAUDE.md if requested
-if $INSTALL_CLAUDE_MD; then
+# Install CLAUDE.md if requested (legacy --with-claude-md)
+if $INSTALL_CLAUDE_MD && ! $FULL_MODE; then
     echo ""
     echo "Installing CLAUDE.md..."
     install_claude_md || ((++FAILED))
+fi
+
+# Full mode: install everything else
+if $FULL_MODE; then
+    _detect_repo_info
+
+    echo ""
+    echo "Installing toolkit files..."
+
+    # Always overwrite (toolkit-managed)
+    install_worker_role || ((++FAILED))
+    install_security_checklist || ((++FAILED))
+    install_toolkit_version || ((++FAILED))
+    ensure_codex_symlink || ((++FAILED))
+
+    # CLAUDE.md with marker-based merge
+    echo ""
+    echo "Installing CLAUDE.md..."
+    install_claude_md_with_markers || ((++FAILED))
+
+    # Create-if-missing
+    echo ""
+    echo "Installing docs (create-if-missing)..."
+    install_docs || ((++FAILED))
+    install_workspace_md || ((++FAILED))
 fi
 
 echo ""

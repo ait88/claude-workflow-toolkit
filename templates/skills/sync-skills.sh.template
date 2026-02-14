@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Skill: /sync-skills
-# Description: Update all workspace skills from toolkit templates
-# Usage: /sync-skills [--dry-run]
+# Description: Sync all toolkit-managed files (skills, CLAUDE.md, roles, docs)
+# Usage: /sync-skills [--dry-run] [--skills-only]
 
 set -euo pipefail
 
@@ -13,12 +13,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_PROJECT=""
 MODE=""
 DRY_RUN=false
+SKILLS_ONLY=false
 
 # Parse flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run|-n)
             DRY_RUN=true
+            shift
+            ;;
+        --skills-only)
+            SKILLS_ONLY=true
             shift
             ;;
         *)
@@ -81,7 +86,11 @@ NC='\033[0m'
 
 echo ""
 echo "========================================"
-echo -e "${BLUE}Syncing Skills from Toolkit${NC}"
+if $SKILLS_ONLY; then
+    echo -e "${BLUE}Syncing Skills from Toolkit${NC}"
+else
+    echo -e "${BLUE}Syncing Toolkit${NC}"
+fi
 echo "========================================"
 
 # Find toolkit source
@@ -127,11 +136,24 @@ if [[ ! -x "$INSTALL_SCRIPT" ]]; then
     exit 1
 fi
 
-if $DRY_RUN; then
-    "$INSTALL_SCRIPT" --all --target "$TARGET" --update --dry-run
+# Build command flags
+INSTALL_FLAGS=("--target" "$TARGET" "--update")
+
+if $SKILLS_ONLY; then
+    INSTALL_FLAGS=("--all" "${INSTALL_FLAGS[@]}")
 else
-    "$INSTALL_SCRIPT" --all --target "$TARGET" --update
+    INSTALL_FLAGS=("--full" "${INSTALL_FLAGS[@]}")
 fi
 
+if $DRY_RUN; then
+    INSTALL_FLAGS+=("--dry-run")
+fi
+
+"$INSTALL_SCRIPT" "${INSTALL_FLAGS[@]}"
+
 echo ""
-echo -e "${GREEN}Skills synchronized!${NC}"
+if $SKILLS_ONLY; then
+    echo -e "${GREEN}Skills synchronized!${NC}"
+else
+    echo -e "${GREEN}Toolkit synchronized!${NC}"
+fi
