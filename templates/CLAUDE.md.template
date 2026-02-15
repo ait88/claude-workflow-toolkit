@@ -1,3 +1,4 @@
+<!-- TOOLKIT:BEGIN -->
 # Claude Code Instructions
 
 This workspace uses **claude-workflow-toolkit** for structured development.
@@ -117,3 +118,4 @@ For multi-step tasks, state a brief plan:
 2. [Step] → verify: [check]
 3. [Step] → verify: [check]
 ```
+<!-- TOOLKIT:END -->

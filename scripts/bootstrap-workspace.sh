@@ -249,28 +249,13 @@ CONFIGEOF
     echo -e "  ${GREEN}✓${NC} workspace-config"
 fi
 
-# Install skills
+# Install everything via --full
 echo ""
-echo "Installing skills..."
+echo "Installing toolkit (skills, CLAUDE.md, roles, docs)..."
 if $DRY_RUN; then
-    "$TOOLKIT_DIR/scripts/install-skill.sh" --all --target "$WORKSPACE_PATH" --profile "$PROFILE_NAME" --dry-run
+    "$TOOLKIT_DIR/scripts/install-skill.sh" --full --target "$WORKSPACE_PATH" --profile "$PROFILE_NAME" --update --dry-run
 else
-    "$TOOLKIT_DIR/scripts/install-skill.sh" --all --target "$WORKSPACE_PATH" --profile "$PROFILE_NAME"
-fi
-
-# Install CLAUDE.md
-echo ""
-echo "Installing CLAUDE.md..."
-if $DRY_RUN; then
-    "$TOOLKIT_DIR/scripts/install-skill.sh" worker --target "$WORKSPACE_PATH" --with-claude-md --dry-run 2>/dev/null | grep -A1 "CLAUDE.md" || echo -e "  ${BLUE}→${NC} CLAUDE.md"
-else
-    "$TOOLKIT_DIR/scripts/install-skill.sh" worker --target "$WORKSPACE_PATH" --with-claude-md 2>/dev/null | grep -A1 "CLAUDE.md" || true
-    # Ensure CLAUDE.md has correct repo info
-    if [[ -f "$WORKSPACE_PATH/CLAUDE.md" ]]; then
-        sed -i "s/{{REPO_OWNER}}/$REPO_OWNER/g" "$WORKSPACE_PATH/CLAUDE.md" 2>/dev/null || true
-        sed -i "s/{{REPO_NAME}}/$REPO_NAME/g" "$WORKSPACE_PATH/CLAUDE.md" 2>/dev/null || true
-        echo -e "  ${GREEN}✓${NC} CLAUDE.md"
-    fi
+    "$TOOLKIT_DIR/scripts/install-skill.sh" --full --target "$WORKSPACE_PATH" --profile "$PROFILE_NAME" --update
 fi
 
 # Summary
