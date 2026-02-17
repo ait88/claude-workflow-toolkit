@@ -397,14 +397,15 @@ install_claude_md() {
 # FULL MODE FUNCTIONS
 # ============================================================================
 
-# Detect repo owner/name from workspace-config or git
+# Detect repo owner/name and populate workspace/project placeholders
 _detect_repo_info() {
-    local repo_owner="" repo_name=""
+    local repo_owner="" repo_name="" target_project_path=""
     if [[ -f "$TARGET_PATH/.claude/workspace-config" ]]; then
         # shellcheck source=/dev/null
         source "$TARGET_PATH/.claude/workspace-config"
         repo_owner="${TARGET_REPO_OWNER:-}"
         repo_name="${TARGET_REPO_NAME:-}"
+        target_project_path="${TARGET_PROJECT_PATH:-}"
     fi
 
     if [[ -z "$repo_owner" ]] && [[ -d "$TARGET_PATH/.git" ]]; then
@@ -418,6 +419,22 @@ _detect_repo_info() {
 
     PLACEHOLDERS[REPO_OWNER]="${repo_owner:-OWNER}"
     PLACEHOLDERS[REPO_NAME]="${repo_name:-REPO}"
+
+    # Workspace/project placeholders
+    PLACEHOLDERS[PROJECT_NAME]="${repo_name:-$(basename "$TARGET_PATH")}"
+    PLACEHOLDERS[TARGET_PROJECT_PATH]="${target_project_path:-$TARGET_PATH}"
+    PLACEHOLDERS[WORKSPACE_NAME]="$(basename "$TARGET_PATH")"
+    PLACEHOLDERS[WORKSPACE_PATH]="$TARGET_PATH"
+
+    # Standard directory paths
+    PLACEHOLDERS[SKILLS_DIR]=".claude/skills"
+    PLACEHOLDERS[CODEX_SKILLS_DIR]=".codex/skills"
+    PLACEHOLDERS[DOCS_DIR]=".claude/docs"
+
+    # Dynamic placeholders (available to all install functions)
+    PLACEHOLDERS[TOOLKIT_SOURCE]="$TOOLKIT_DIR"
+    PLACEHOLDERS[TOOLKIT_COMMIT]=$(cd "$TOOLKIT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    PLACEHOLDERS[CURRENT_DATE]=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 }
 
 # Install WORKER-ROLE.md (always overwrite)
@@ -483,10 +500,7 @@ install_toolkit_version() {
         return 0
     fi
 
-    # Add dynamic placeholders
-    PLACEHOLDERS[TOOLKIT_SOURCE]="$TOOLKIT_DIR"
-    PLACEHOLDERS[TOOLKIT_COMMIT]=$(cd "$TOOLKIT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-    PLACEHOLDERS[CURRENT_DATE]=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    # Installation mode (toolkit-version specific)
     PLACEHOLDERS[INSTALLATION_MODE]="full"
 
     if $DRY_RUN; then
@@ -723,6 +737,9 @@ fi
 # Build placeholder map
 build_placeholder_map "$PROFILE_FILE"
 
+# Detect repo info and populate workspace/project placeholders
+_detect_repo_info
+
 echo ""
 echo "Installing skills..."
 echo -e "  Profile: ${BLUE}$PROFILE_NAME${NC}"
@@ -771,8 +788,6 @@ fi
 
 # Full mode: install everything else
 if $FULL_MODE; then
-    _detect_repo_info
-
     echo ""
     echo "Installing toolkit files..."
 
