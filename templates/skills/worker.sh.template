@@ -852,8 +852,8 @@ _show_status() {
     echo "----------------------------------------"
     echo ""
 
-    _check_skill_staleness
-    local staleness_result=$?
+    local staleness_result=0
+    _check_skill_staleness || staleness_result=$?
     case $staleness_result in
         0)
             echo -e "${GREEN}✓ Skills:${NC} Up to date"
