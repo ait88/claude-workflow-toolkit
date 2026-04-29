@@ -34,6 +34,18 @@ commands:
   test_integration: ""
   lint: "echo 'No lint command configured'"
 
+# CHANGELOG convention (opt-in)
+# When enabled, toolkit-managed skills surface CHANGELOG awareness:
+# - submit-pr soft-warns when substantive changes don't touch the changelog
+# - review-pr adds a CHANGELOG checklist item
+# - worker docs/role mention an "update [Unreleased] if user-facing" step
+# - CLAUDE.md/QUICK-REFERENCE.md render a CHANGELOG Convention section
+changelog:
+  enabled: false                       # opt-in; default has no opinion
+  file: "CHANGELOG.md"                 # path relative to project root
+  format: "keepachangelog"             # informational
+  unreleased_section: "[Unreleased]"   # heading text the skills look for
+
 # Worker agent configuration
 worker:
   max_retries: 3        # Max attempts to fix quality gate failures

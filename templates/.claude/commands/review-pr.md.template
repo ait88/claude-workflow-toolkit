@@ -140,6 +140,12 @@ The skill guides you through reviewing:
 - Database migrations
 - Configuration changes
 
+{{IF:CHANGELOG_ENABLED}}
+### 7. CHANGELOG Entry
+- Entry under `## {{CHANGELOG_UNRELEASED_SECTION}}` in `{{CHANGELOG_FILE}}`, OR
+- PR description states no user-facing change
+{{END:CHANGELOG_ENABLED}}
+
 ## Workflow Integration
 
 ### As a Reviewer

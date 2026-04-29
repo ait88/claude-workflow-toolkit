@@ -16,6 +16,13 @@ commands:
   build: "npm run build"
   dev: "npm run dev"
 
+# CHANGELOG convention (Node ecosystem conventionally maintains one)
+changelog:
+  enabled: true
+  file: "CHANGELOG.md"
+  format: "keepachangelog"
+  unreleased_section: "[Unreleased]"
+
 output:
   security:
     - SECURITY-CHECKLIST-node.md

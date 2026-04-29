@@ -53,6 +53,17 @@ This workspace uses **claude-workflow-toolkit** for structured development.
 4. **Use feature branches** - Branch naming: `<issue-number>-<slug>`
 5. **Quality gates must pass** - Tests and lint before PR submission
 
+{{IF:CHANGELOG_ENABLED}}
+## CHANGELOG Convention
+
+This project tracks user-facing changes in `{{CHANGELOG_FILE}}`. While implementing an issue:
+
+- Add a line under `## {{CHANGELOG_UNRELEASED_SECTION}}` describing user-visible behaviour changes
+- Do **not** bump versions or insert dated section headings — the project's release flow handles that
+- For internal-only changes (refactors, test-only, CI tweaks), skip the changelog and call it out in the PR description
+- `submit-pr` will print a soft warning if substantive changes don't touch `{{CHANGELOG_FILE}}` — this is informational, not a blocker
+
+{{END:CHANGELOG_ENABLED}}
 ## Quick Reference
 
 For detailed guidance, see:
