@@ -223,8 +223,11 @@ Autonomous development loop - claims issues, implements, tests, submits PRs.
 - Resumes in-progress work or claims next `agent-ready` issue
 - Runs quality gates (tests, lint, security)
 - Retries fixes up to `{{WORKER_MAX_RETRIES}}` times
-- Queues decisions for human review when blocked
+- On unrecoverable failure (quality gates exhausted, PR submit fail, or `--stuck`): posts a comment on the issue, swaps `in-progress` → `blocked`, and continues to the next issue
 - Integrates with `/claim-issue` and `/submit-pr` internally
+
+#### `scripts/start-worker.sh.template` (workspace mode only)
+Launcher script installed at `<workspace>/scripts/start-worker`. Starts a Claude Code session in the workspace directory pre-loaded with the kickoff prompt that orientates the agent and runs `/worker`. Symlink to `~/.local/bin/start-worker` for global access.
 
 ### Command Documentation Templates
 

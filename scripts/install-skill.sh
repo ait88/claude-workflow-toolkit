@@ -490,6 +490,32 @@ install_security_checklist() {
     echo -e "  ${GREEN}✓${NC} .claude/SECURITY-CHECKLIST.md"
 }
 
+# Install start-worker launcher script (workspace mode only; always overwrite)
+install_start_worker() {
+    local template="$TOOLKIT_DIR/templates/scripts/start-worker.sh.template"
+    local output="$TARGET_PATH/scripts/start-worker"
+
+    if [[ ! -f "$template" ]]; then
+        echo -e "  ${YELLOW}⊘${NC} scripts/start-worker (template not found)"
+        return 0
+    fi
+
+    # Only install in workspace mode (when workspace-config exists)
+    if [[ ! -f "$TARGET_PATH/.claude/workspace-config" ]]; then
+        return 0
+    fi
+
+    if $DRY_RUN; then
+        echo -e "  ${BLUE}→${NC} scripts/start-worker"
+        return 0
+    fi
+
+    mkdir -p "$TARGET_PATH/scripts"
+    substitute_placeholders "$template" "$output"
+    chmod +x "$output"
+    echo -e "  ${GREEN}✓${NC} scripts/start-worker"
+}
+
 # Install toolkit-version file (always regenerate)
 install_toolkit_version() {
     local template="$TOOLKIT_DIR/templates/.claude/toolkit-version.template"
@@ -795,6 +821,7 @@ if $FULL_MODE; then
     install_worker_role || ((++FAILED))
     install_security_checklist || ((++FAILED))
     install_toolkit_version || ((++FAILED))
+    install_start_worker || ((++FAILED))
     ensure_codex_symlink || ((++FAILED))
 
     # CLAUDE.md with marker-based merge

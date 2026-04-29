@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# start-worker - Launch a Claude Code worker session for this workspace.
+# Installed by claude-workflow-toolkit ({{TOOLKIT_COMMIT}})
+#
+# Usage:
+#   ./scripts/start-worker            # Interactive session, kickoff prompt pre-loaded
+#   ./scripts/start-worker --model X  # Pass-through CLI flags supported
+#
+# Tip: symlink to ~/.local/bin/start-worker for global access.
+
+set -euo pipefail
+
+WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$WORKSPACE_DIR"
+
+KICKOFF_PROMPT="Hi Claude, please read CLAUDE.md and WORKSPACE.md to get orientated, then run the /worker skill."
+
+if ! command -v claude >/dev/null 2>&1; then
+    echo "Error: 'claude' CLI not found in PATH" >&2
+    echo "Install Claude Code: https://claude.com/claude-code" >&2
+    exit 1
+fi
+
+exec claude --dangerously-skip-permissions "$@" "$KICKOFF_PROMPT"

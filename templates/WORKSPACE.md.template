@@ -28,6 +28,17 @@ This is a **workflow workspace** - a dedicated directory containing toolkit infr
 
 ## Usage
 
+### Launch a Worker Session
+
+Quickest way to start work — launches Claude Code in this workspace with a kickoff prompt:
+
+```bash
+cd {{WORKSPACE_PATH}}
+./scripts/start-worker
+```
+
+Symlink to `~/.local/bin/start-worker` if you want global access.
+
 ### From This Workspace
 
 ```bash
