@@ -43,10 +43,12 @@ If you're a Claude Code or Codex agent asked to apply this toolkit:
        --source ~/myproject
    ```
 
-3. **Start an agent with proper context:**
+3. **Start an agent:**
    ```bash
    cd ~/workspaces/myproject
-   claude -c "read CLAUDE.md then /check-workflow"
+   ./scripts/start-worker                                 # recommended — pre-loaded kickoff prompt
+   # or, manually:
+   # claude "read CLAUDE.md and WORKSPACE.md then /worker --status"
    ```
 
 The agent will see the workflow rules, current status, and available commands.
@@ -70,12 +72,23 @@ To ensure agents follow the PR-based workflow correctly, start them with the uni
 
 ### Recommended Startup Command
 
+The bundled launcher (installed at `<workspace>/scripts/start-worker` in workspace mode) is the simplest way:
+
 ```bash
 cd ~/workspaces/myproject
-claude -c "read CLAUDE.md then /worker --status"
+./scripts/start-worker
 ```
 
-This ensures the agent:
+It runs `claude --dangerously-skip-permissions` with this kickoff prompt: *"Hi Claude, please read CLAUDE.md and WORKSPACE.md to get orientated, then run the /worker skill."* Symlink to `~/.local/bin/start-worker` for global access.
+
+To invoke it manually instead:
+
+```bash
+cd ~/workspaces/myproject
+claude "read CLAUDE.md and WORKSPACE.md then /worker --status"
+```
+
+Either way, the agent:
 1. **Reads workflow rules** - Including "NEVER push to main"
 2. **Sees comprehensive status** - Skills, reviews, issues, branch context
 3. **Gets context-aware guidance** - Suggested next steps based on current state
@@ -85,7 +98,7 @@ This ensures the agent:
 For one complete work cycle (claim → implement → submit):
 
 ```bash
-claude -c "/worker --once"
+claude "/worker --once"
 ```
 
 The worker will:
@@ -99,7 +112,7 @@ The worker will:
 For continuous autonomous operation:
 
 ```bash
-claude -c "/worker"
+claude "/worker"
 ```
 
 ### Why `/worker` as Entry Point
@@ -111,6 +124,7 @@ The `/worker` command is the **unified entry point** for all workflow operations
 | `/worker --status` | What needs attention? (start here) |
 | `/worker --once` | One complete work cycle |
 | `/worker` | Continuous autonomous loop |
+| `/worker --stuck` | Block current issue (post comment + label), continue to next |
 | `/worker --help` | Show all options |
 
 This consolidation means agents always know where to start and what to do next.
@@ -361,10 +375,13 @@ claude-workflow-toolkit/
 │   │   ├── toolkit-version.template     # Version tracking (workspace mode)
 │   │   └── workspace-config.template    # Workspace configuration
 │   │
-│   └── docs/                   # Documentation templates
-│       ├── QUICK-REFERENCE.md.template
-│       ├── FAQ-AGENTS.md.template
-│       └── CODEBASE-MAP.md.template
+│   ├── docs/                   # Documentation templates
+│   │   ├── QUICK-REFERENCE.md.template
+│   │   ├── FAQ-AGENTS.md.template
+│   │   └── CODEBASE-MAP.md.template
+│   │
+│   └── scripts/                # Workspace-installed scripts
+│       └── start-worker.sh.template     # Launcher for `<workspace>/scripts/start-worker`
 │
 ├── profiles/                   # Pre-configured project settings
 │   ├── default.yaml
@@ -372,6 +389,14 @@ claude-workflow-toolkit/
 │   ├── bash-cli.yaml
 │   ├── node-npm.yaml
 │   └── python-poetry.yaml
+│
+├── lib/                        # Shared bash libraries
+│   ├── telemetry.sh
+│   └── telemetry-session.sh
+│
+├── docs/                       # Toolkit documentation (human-facing)
+│   ├── TELEMETRY.md
+│   └── TELEMETRY-FORMAT.md
 │
 ├── examples/
 │   └── applied/               # Example generated output
@@ -382,6 +407,7 @@ claude-workflow-toolkit/
     ├── validate-toolkit.sh       # Check workspace health
     ├── setup-labels.sh           # Create required GitHub labels
     ├── validate-templates.sh     # Template syntax validator
+    ├── telemetry-init.sh         # Telemetry initialization helper
     └── migrate-to-workspace.sh   # Convert embedded to workspace mode
 ```
 
