@@ -717,6 +717,9 @@ WORKFLOW:
   1. /worker --status   Check what needs attention
   2. /worker --once     Start one work cycle
   3. Implement solution
+{{IF:CHANGELOG_ENABLED}}
+                        (also update {{CHANGELOG_FILE}} '{{CHANGELOG_UNRELEASED_SECTION}}' if user-facing)
+{{END:CHANGELOG_ENABLED}}
   4. /worker --once     Continue (runs quality gates, submits PR)
   5. Repeat
 

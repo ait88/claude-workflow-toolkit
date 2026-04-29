@@ -14,6 +14,13 @@ commands:
   lint: "shellcheck **/*.sh"
   format: "shfmt -w -i 4 **/*.sh"
 
+# CHANGELOG convention (CLI tooling rarely maintains one; opt-in if needed)
+changelog:
+  enabled: false
+  file: "CHANGELOG.md"
+  format: "keepachangelog"
+  unreleased_section: "[Unreleased]"
+
 output:
   security:
     - SECURITY-CHECKLIST-bash.md

@@ -433,6 +433,14 @@ echo "     - Database migrations"
 echo "     - Configuration changes"
 echo ""
 
+# CHANGELOG checklist item (opt-in via profile changelog.enabled)
+if [[ "{{CHANGELOG_ENABLED}}" == "true" ]]; then
+    echo -e "  ${CYAN}7. CHANGELOG Entry${NC}"
+    echo "     - Entry under '## {{CHANGELOG_UNRELEASED_SECTION}}' in {{CHANGELOG_FILE}},"
+    echo "       OR PR description states no user-facing change"
+    echo ""
+fi
+
 # Show diff summary
 echo "========================================"
 echo "Diff Preview"

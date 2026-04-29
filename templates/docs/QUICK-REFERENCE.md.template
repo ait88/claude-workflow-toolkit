@@ -63,6 +63,9 @@
 - [ ] `/check-workflow` passes
 - [ ] All tests passing
 - [ ] Documentation updated if needed
+{{IF:CHANGELOG_ENABLED}}
+- [ ] `{{CHANGELOG_FILE}}` updated under `## {{CHANGELOG_UNRELEASED_SECTION}}` for user-facing changes (or PR notes it's internal-only)
+{{END:CHANGELOG_ENABLED}}
 
 ---
 

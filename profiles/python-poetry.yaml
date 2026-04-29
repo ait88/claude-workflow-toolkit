@@ -15,6 +15,13 @@ commands:
   format: "poetry run ruff format ."
   typecheck: "poetry run mypy ."
 
+# CHANGELOG convention (mixed in Python ecosystem; opt-in if the project uses one)
+changelog:
+  enabled: false
+  file: "CHANGELOG.md"
+  format: "keepachangelog"
+  unreleased_section: "[Unreleased]"
+
 output:
   security:
     - SECURITY-CHECKLIST-python.md

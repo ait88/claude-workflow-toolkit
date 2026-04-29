@@ -237,6 +237,38 @@ ln -s ../.claude/skills .codex/skills  # adjust if you customize SKILLS_DIR
 | `node-npm.yaml` | Node.js/TypeScript |
 | `python-poetry.yaml` | Python with Poetry |
 
+### CHANGELOG awareness (opt-in)
+
+Profiles can declare a CHANGELOG convention so toolkit-managed skills surface it without forcing it on every project:
+
+```yaml
+changelog:
+  enabled: true                      # opt-in
+  file: CHANGELOG.md                 # path relative to project root
+  format: keepachangelog             # informational
+  unreleased_section: "[Unreleased]" # heading the skills look for
+```
+
+Per-profile defaults:
+
+| Profile | `enabled` | Rationale |
+|---------|-----------|-----------|
+| `default` | `false` | No opinion — projects opt in |
+| `php-composer` | `true` | CHANGELOGs are conventional |
+| `node-npm` | `true` | CHANGELOGs are conventional |
+| `python-poetry` | `false` | Mixed conventions — opt in if used |
+| `bash-cli` | `false` | CLI tooling rarely maintains one |
+
+When `enabled: true`, the toolkit-managed skills add:
+- A soft warning from `/submit-pr` when substantive changes don't touch the changelog (never blocks)
+- A 7th `/review-pr` checklist item asking for an `[Unreleased]` entry
+- A line in the documented `/worker` loop reminding the agent to update `[Unreleased]` for user-facing changes
+- A `CHANGELOG Convention` section in `CLAUDE.md` and a pre-flight item in `QUICK-REFERENCE.md`
+
+When `enabled: false` (or the block is omitted), no behaviour change.
+
+The shape was driven by a real downstream incident: a feature PR baked a dated changelog heading directly into its diff, leaving nothing under `[Unreleased]` for the release skill to consume. See [Woo-Options#562](https://github.com/ait88/Woo-Options/pull/562) and the toolkit's [issue #78](https://github.com/ait88/claude-workflow-toolkit/issues/78) for context.
+
 ## API Efficiency
 
 ### Traditional workflow (manual commands)

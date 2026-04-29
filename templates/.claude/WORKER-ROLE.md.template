@@ -12,6 +12,9 @@ Run `/worker` to start the autonomous development loop:
 1. Check for pending reviews → address if found
 2. Resume in-progress work → or claim next issue
 3. Implement the solution
+{{IF:CHANGELOG_ENABLED}}
+   → if user-facing, update {{CHANGELOG_FILE}} '{{CHANGELOG_UNRELEASED_SECTION}}'
+{{END:CHANGELOG_ENABLED}}
 4. Run quality gates (tests, lint, security)
 5. Submit PR
 6. Repeat
@@ -24,6 +27,9 @@ Run `/worker` to start the autonomous development loop:
 - Claim issues labeled `agent-ready`
 - Create feature branches
 - Implement code changes following project patterns
+{{IF:CHANGELOG_ENABLED}}
+- Add a `## {{CHANGELOG_UNRELEASED_SECTION}}` entry to `{{CHANGELOG_FILE}}` for user-facing changes (skip for internal-only)
+{{END:CHANGELOG_ENABLED}}
 - Run tests and fix test failures (up to {{WORKER_MAX_RETRIES}} attempts)
 - Fix lint errors automatically
 - Address simple security issues flagged by checks

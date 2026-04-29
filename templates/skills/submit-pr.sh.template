@@ -202,6 +202,41 @@ if [[ -n $(_git status --porcelain) ]]; then
     fi
 fi
 
+# CHANGELOG soft warning (opt-in via profile changelog.enabled)
+# Soft only: never blocks PR submission. Some PRs are legitimately internal-only.
+if [[ "{{CHANGELOG_ENABLED}}" == "true" ]]; then
+    _changelog_file="{{CHANGELOG_FILE}}"
+    _changelog_section="{{CHANGELOG_UNRELEASED_SECTION}}"
+    # Three-dot syntax: diff from merge-base(default,HEAD) to HEAD — i.e. files this branch
+    # introduces, ignoring anything that landed on the default branch since we branched off.
+    _diff_files=$(_git diff --name-only "origin/{{DEFAULT_BRANCH}}...HEAD" 2>/dev/null || true)
+    if [[ -n "$_diff_files" ]]; then
+        _has_changelog=false
+        _has_substantive=false
+        while IFS= read -r _f; do
+            [[ -z "$_f" ]] && continue
+            if [[ "$_f" == "$_changelog_file" ]]; then
+                _has_changelog=true
+                continue
+            fi
+            # Skip files that don't typically warrant a CHANGELOG entry
+            case "$_f" in
+                tests/*|test/*|*/__tests__/*|*.test.*|*.spec.*) continue ;;
+                docs/*|*.md|.github/*) continue ;;
+            esac
+            _has_substantive=true
+        done <<< "$_diff_files"
+
+        if $_has_substantive && ! $_has_changelog; then
+            echo ""
+            echo -e "${YELLOW}⚠  No ${_changelog_file} entry detected.${NC}"
+            echo "   If this PR has user-facing changes, add a line under '## ${_changelog_section}'."
+            echo "   If it's internal-only, mention that in the PR description."
+            echo ""
+        fi
+    fi
+fi
+
 # Helper function for SSH/HTTPS fallback
 git_with_fallback() {
     local cmd="$1"

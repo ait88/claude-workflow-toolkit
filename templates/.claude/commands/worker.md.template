@@ -42,6 +42,9 @@ Runs exactly one iteration:
 1. Checks for pending reviews (blocks if found)
 2. Claims next issue OR resumes in-progress work
 3. Pauses for implementation
+{{IF:CHANGELOG_ENABLED}}
+   - If the change is user-facing, update `{{CHANGELOG_FILE}}` under `## {{CHANGELOG_UNRELEASED_SECTION}}`
+{{END:CHANGELOG_ENABLED}}
 4. Runs quality gates when code is ready
 5. Submits PR on success
 

@@ -222,6 +222,51 @@ build_placeholder_map() {
 
     PLACEHOLDERS[WORKER_PARALLEL_MAX]=$(yaml_get_nested "$profile" "worker" "parallel_max")
     [[ -z "${PLACEHOLDERS[WORKER_PARALLEL_MAX]:-}" ]] && PLACEHOLDERS[WORKER_PARALLEL_MAX]="5" || true
+
+    # CHANGELOG convention (opt-in; defaults to disabled when profile omits the block)
+    PLACEHOLDERS[CHANGELOG_ENABLED]=$(yaml_get_nested "$profile" "changelog" "enabled")
+    [[ -z "${PLACEHOLDERS[CHANGELOG_ENABLED]:-}" ]] && PLACEHOLDERS[CHANGELOG_ENABLED]="false" || true
+
+    PLACEHOLDERS[CHANGELOG_FILE]=$(yaml_get_nested "$profile" "changelog" "file")
+    [[ -z "${PLACEHOLDERS[CHANGELOG_FILE]:-}" ]] && PLACEHOLDERS[CHANGELOG_FILE]="CHANGELOG.md" || true
+
+    PLACEHOLDERS[CHANGELOG_UNRELEASED_SECTION]=$(yaml_get_nested "$profile" "changelog" "unreleased_section")
+    [[ -z "${PLACEHOLDERS[CHANGELOG_UNRELEASED_SECTION]:-}" ]] && PLACEHOLDERS[CHANGELOG_UNRELEASED_SECTION]="[Unreleased]" || true
+}
+
+# Process {{IF:KEY}}...{{END:KEY}} conditional blocks based on placeholder values.
+# Markers must each occupy their own line. When PLACEHOLDERS[KEY] == "true" the
+# block contents are kept and the marker lines are stripped. Otherwise the
+# entire block (markers and contents) is removed.
+process_conditionals() {
+    local content="$1"
+
+    # Discover which keys appear in IF markers
+    local keys
+    keys=$(printf '%s\n' "$content" | grep -oE '\{\{IF:[A-Z_]+\}\}' 2>/dev/null | sed 's/{{IF://; s/}}//' | sort -u || true)
+
+    local key value
+    for key in $keys; do
+        value="${PLACEHOLDERS[$key]:-}"
+        if [[ "$value" == "true" ]]; then
+            content=$(printf '%s\n' "$content" | awk \
+                -v marker_if="{{IF:${key}}}" \
+                -v marker_end="{{END:${key}}}" '
+                index($0, marker_if) || index($0, marker_end) { next }
+                { print }
+            ')
+        else
+            content=$(printf '%s\n' "$content" | awk \
+                -v marker_if="{{IF:${key}}}" \
+                -v marker_end="{{END:${key}}}" '
+                skip && index($0, marker_end) { skip=0; next }
+                !skip && index($0, marker_if) { skip=1; next }
+                !skip { print }
+            ')
+        fi
+    done
+
+    printf '%s' "$content"
 }
 
 # Substitute placeholders in a file
@@ -231,6 +276,9 @@ substitute_placeholders() {
 
     local content
     content=$(cat "$input_file")
+
+    # Resolve conditional blocks before doing literal placeholder substitution
+    content=$(process_conditionals "$content")
 
     # Substitute each placeholder
     for key in "${!PLACEHOLDERS[@]}"; do
@@ -255,12 +303,14 @@ substitute_placeholders() {
 # Check for unreplaced placeholders
 check_placeholders() {
     local file="$1"
-    local unreplaced
+    local unreplaced leaked_markers
     unreplaced=$(grep -o '{{[A-Z_]*}}' "$file" 2>/dev/null | sort -u || true)
+    leaked_markers=$(grep -oE '\{\{(IF|END):[A-Z_]+\}\}' "$file" 2>/dev/null | sort -u || true)
 
-    if [[ -n "$unreplaced" ]]; then
+    if [[ -n "$unreplaced" ]] || [[ -n "$leaked_markers" ]]; then
         echo -e "${YELLOW}Warning: Unreplaced placeholders in $file:${NC}"
-        echo "$unreplaced" | sed 's/^/  /'
+        [[ -n "$unreplaced" ]] && echo "$unreplaced" | sed 's/^/  /'
+        [[ -n "$leaked_markers" ]] && echo "$leaked_markers" | sed 's/^/  (unmatched conditional) /'
         return 1
     fi
     return 0
@@ -627,9 +677,10 @@ install_claude_md_with_markers() {
         return 1
     fi
 
-    # Prepare toolkit content from template with placeholders resolved
+    # Prepare toolkit content from template with conditionals + placeholders resolved
     local toolkit_content
     toolkit_content=$(cat "$template")
+    toolkit_content=$(process_conditionals "$toolkit_content")
     for key in "${!PLACEHOLDERS[@]}"; do
         local value="${PLACEHOLDERS[$key]}"
         value=$(echo "$value" | sed 's/[&/\]/\\&/g')
