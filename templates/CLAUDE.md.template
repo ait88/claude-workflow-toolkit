@@ -38,6 +38,7 @@ This workspace uses **claude-workflow-toolkit** for structured development.
 | `/worker --status` | **Entry point** - Show workflow status and next steps |
 | `/worker --once` | Run one work cycle (claim → implement → submit) |
 | `/worker` | Continuous autonomous loop |
+| `/worker --stuck` | Block current issue (post comment + label), continue to next |
 | `/worker --help` | Show all worker options |
 | `/check-reviews` | Detailed view of PRs needing attention |
 | `/claim-issue <n>` | Claim specific issue (alternative to worker) |

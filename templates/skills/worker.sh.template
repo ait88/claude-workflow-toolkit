@@ -132,6 +132,7 @@ PARALLEL_MAX={{WORKER_PARALLEL_MAX}}
 RESET_STATE=false
 SHOW_STATUS=false
 SHOW_HELP=false
+STUCK_MODE=false
 
 _parse_worker_flags() {
     local args=()
@@ -163,6 +164,10 @@ _parse_worker_flags() {
                 ;;
             --status|-s)
                 SHOW_STATUS=true
+                shift
+                ;;
+            --stuck)
+                STUCK_MODE=true
                 shift
                 ;;
             --help|-h)
@@ -313,6 +318,40 @@ _check_pending_decisions() {
         echo "  Review: ls $DECISION_DIR"
         echo ""
     fi
+}
+
+# Block an issue: post comment, swap in-progress→blocked, clear local state, log.
+# Used when the worker can't make progress on an issue and needs to move on.
+_block_issue() {
+    local issue="$1"
+    local reason="$2"
+
+    if [[ -z "$issue" ]]; then
+        return 1
+    fi
+
+    # String concatenation (not heredoc) to avoid delimiter collision
+    # if $reason contains a line that matches the heredoc terminator.
+    local comment_body
+    comment_body="**Worker blocked** ($(date -Iseconds))
+
+${reason}
+
+---
+Posted automatically by \`/worker\`. To retry: remove the \`blocked\` label and re-add \`agent-ready\`."
+    if ! gh issue comment "$issue" --repo "$OWNER/$REPO" --body "$comment_body" > /dev/null 2>&1; then
+        echo -e "${YELLOW}Warning: Failed to post blocking comment on #$issue${NC}"
+    fi
+
+    if ! gh issue edit "$issue" --repo "$OWNER/$REPO" \
+        --remove-label "in-progress" --add-label "blocked" > /dev/null 2>&1; then
+        echo -e "${YELLOW}Warning: Failed to swap labels on #$issue${NC}"
+    fi
+
+    _log_history "BLOCKED" "$issue" "$reason"
+    _clear_current_issue
+
+    echo -e "${YELLOW}Issue #$issue blocked:${NC} $reason"
 }
 
 # ============================================================================
@@ -645,12 +684,15 @@ MODES:
   /worker --once        Run one complete cycle (claim → implement → submit)
   /worker               Continuous autonomous loop
   /worker --parallel <n> Parallel mode: spawn n sub-agents for n issues
+  /worker --stuck       Block current issue, move to next
   /worker --help        Show this help message
 
 OPTIONS:
   --status, -s          Show workflow status without taking action
   --once                Process exactly one issue then stop
   --parallel <n>        Spawn n parallel sub-agents (default: 3, max: {{WORKER_PARALLEL_MAX}})
+  --stuck               Mark current issue as blocked (post comment, swap label)
+                        and continue to the next agent-ready issue
   --max-issues <n>      Maximum issues to process (default: {{WORKER_MAX_ISSUES}})
   --dry-run             Show what would happen without making changes
   --reset               Clear worker state (lock, current issue, queue, worktrees)
@@ -684,6 +726,7 @@ EXAMPLES:
   /worker --once --dry-run            # Preview without changes
   /worker --max-issues 3              # Process up to 3 issues
   /worker --parallel 3                # Process 3 issues in parallel
+  /worker --stuck                     # Block current issue, continue to next
   /worker --reset                     # Clear stale state + worktrees
 
 STATE FILES:
@@ -1252,8 +1295,7 @@ _worker_loop() {
                     "Quality gates failing" \
                     "Tests or lint failing after $MAX_RETRIES fix attempts" \
                     '["Fix manually", "Skip quality gates", "Abandon issue"]'
-                _log_history "BLOCKED" "$current_issue" "Quality gates failed after $MAX_RETRIES attempts"
-                _clear_current_issue
+                _block_issue "$current_issue" "Quality gates failed after $MAX_RETRIES attempts (tests or lint failing). See worker decision queue for details."
                 ((++issues_completed))
                 continue
             fi
@@ -1275,15 +1317,18 @@ _worker_loop() {
             if ! submit_output=$("${SCRIPT_DIR}/submit-pr" 2>&1); then
                 echo -e "${RED}Failed to submit PR${NC}"
                 echo "$submit_output"
+                # Distinct FAILED entry so history.log can tell PR-fail from
+                # quality-gate-fail (both paths also call _block_issue → BLOCKED).
                 _log_history "FAILED" "$current_issue" "PR submission failed"
-                # Escape quotes in output for JSON and truncate if too long
-                local error_context
-                error_context=$(echo "$submit_output" | tail -10 | sed 's/"/\\"/g' | tr '\n' ' ' | cut -c1-500)
+                local error_summary
+                error_summary=$(echo "$submit_output" | tail -10 | tr '\n' ' ' | cut -c1-500)
+                local error_context_json
+                error_context_json=$(echo "$error_summary" | sed 's/"/\\"/g')
                 _queue_decision "$current_issue" \
                     "PR submission failed" \
-                    "Error: ${error_context}" \
+                    "Error: ${error_context_json}" \
                     '["Retry manually", "Abandon issue"]'
-                _clear_current_issue
+                _block_issue "$current_issue" "PR submission failed. Last output: ${error_summary}"
                 ((++issues_completed))
                 continue
             fi
@@ -1463,6 +1508,24 @@ if $SHOW_STATUS; then
 fi
 
 _init_worker_state
+
+# Handle --stuck flag: block current issue, then fall through to normal loop
+# so the worker picks up the next agent-ready issue.
+if $STUCK_MODE; then
+    if [[ "$PARALLEL_COUNT" -gt 1 ]]; then
+        echo -e "${RED}Error: --stuck is not supported in parallel mode${NC}"
+        echo "Use --stuck on a single sequential worker, or block the issue manually."
+        exit 1
+    fi
+    STUCK_ISSUE=$(_get_current_issue)
+    if [[ -z "$STUCK_ISSUE" ]]; then
+        echo -e "${RED}Error: No current issue to mark stuck${NC}"
+        echo "Worker has no claimed issue. Run /worker --status to see state."
+        exit 1
+    fi
+    _block_issue "$STUCK_ISSUE" "Agent reported stuck. Manual review needed."
+    echo ""
+fi
 
 # Run parallel or sequential mode
 if [[ "$PARALLEL_COUNT" -gt 1 ]]; then
