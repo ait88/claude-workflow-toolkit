@@ -330,16 +330,15 @@ _block_issue() {
         return 1
     fi
 
+    # String concatenation (not heredoc) to avoid delimiter collision
+    # if $reason contains a line that matches the heredoc terminator.
     local comment_body
-    comment_body=$(cat <<EOF
-**Worker blocked** ($(date -Iseconds))
+    comment_body="**Worker blocked** ($(date -Iseconds))
 
 ${reason}
 
 ---
-Posted automatically by \`/worker\`. To retry: remove the \`blocked\` label and re-add \`agent-ready\`.
-EOF
-)
+Posted automatically by \`/worker\`. To retry: remove the \`blocked\` label and re-add \`agent-ready\`."
     if ! gh issue comment "$issue" --repo "$OWNER/$REPO" --body "$comment_body" > /dev/null 2>&1; then
         echo -e "${YELLOW}Warning: Failed to post blocking comment on #$issue${NC}"
     fi
@@ -1318,6 +1317,9 @@ _worker_loop() {
             if ! submit_output=$("${SCRIPT_DIR}/submit-pr" 2>&1); then
                 echo -e "${RED}Failed to submit PR${NC}"
                 echo "$submit_output"
+                # Distinct FAILED entry so history.log can tell PR-fail from
+                # quality-gate-fail (both paths also call _block_issue → BLOCKED).
+                _log_history "FAILED" "$current_issue" "PR submission failed"
                 local error_summary
                 error_summary=$(echo "$submit_output" | tail -10 | tr '\n' ' ' | cut -c1-500)
                 local error_context_json
@@ -1510,6 +1512,11 @@ _init_worker_state
 # Handle --stuck flag: block current issue, then fall through to normal loop
 # so the worker picks up the next agent-ready issue.
 if $STUCK_MODE; then
+    if [[ "$PARALLEL_COUNT" -gt 1 ]]; then
+        echo -e "${RED}Error: --stuck is not supported in parallel mode${NC}"
+        echo "Use --stuck on a single sequential worker, or block the issue manually."
+        exit 1
+    fi
     STUCK_ISSUE=$(_get_current_issue)
     if [[ -z "$STUCK_ISSUE" ]]; then
         echo -e "${RED}Error: No current issue to mark stuck${NC}"
